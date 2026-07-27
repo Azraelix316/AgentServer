@@ -5,7 +5,7 @@ if __name__ == "__main__":
     boto3.setup_default_session(profile_name=AWS_PROFILE)
     helper = KaggleHelper(
         kaggle_username="gnachderaj",
-        webhook_url=" https://0flgutlom2.execute-api.ap-southeast-2.amazonaws.com/updateTasks"
+        webhook_url="https://0flgutlom2.execute-api.ap-southeast-2.amazonaws.com/updateTasks"
     )
 
     agent_code = """

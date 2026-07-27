@@ -2,7 +2,7 @@ import re
 import google.generativeai as genai
 
 class CoderAgent:
-    def __init__(self, gemini_api_key: str, model_name: str = "gemini-3.6-flash"):
+    def __init__(self, gemini_api_key: str, model_name: str = "gemini-3.5-flash-lite"):
         """
         Initializes the Coder Agent, responsible for turning plans into Kaggle-ready Python code.
         """
