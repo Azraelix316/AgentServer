@@ -1,4 +1,3 @@
-import os
 import json
 import boto3
 import google.generativeai as genai
@@ -14,29 +13,35 @@ class CognitiveManager:
         # Max tokens mapping (~4 chars per token)
         self.MAX_CHARS_MEMORY = 150000 * 4
 
-    def update_agent_cognition(self, task_name: str, local_output_dir: str, current_action: str) -> str:
+    def update_agent_cognition(self, task_name: str, current_action: str, execution_heads: str, execution_stderr: str) -> str:
         """
         Executes the 3-step hierarchical cognitive update and saves to S3.
+        Expects the parsed execution logs to be passed in directly.
         Returns the S3 prefix where the cognitive files are stored.
         """
-        cog_prefix = f"{task_name.lower().replace(' ', '-')}/cognition"
+        # Ensure cognitive files map to task_folder/memories
+        safe_task_name = task_name.lower().replace(' ', '-')
+        cog_prefix = f"{safe_task_name}/memories"
         
-        # 1. Parse local execution data
-        execution_data = self._parse_execution_outputs(local_output_dir)
+        # 1. Package the provided execution data
+        exec_data = {
+            "heads": execution_heads if execution_heads else "No outputs generated.",
+            "stderr": execution_stderr if execution_stderr else "No errors detected."
+        }
         
         # 2. Fetch previous state from S3 (defaults to empty strings if not found)
         prev_mem = self._read_s3_text(f"{cog_prefix}/memory.txt")
         prev_state = self._read_s3_text(f"{cog_prefix}/state.txt")
         prev_report = self._read_s3_text(f"{cog_prefix}/report.txt")
 
-        print("🧠 [Step 1/3] Updating Memory and generating Memory Summary...")
-        memory_result = self._generate_memory(prev_mem, execution_data, current_action)
+        print(f"🧠 [Step 1/3] Updating Memory and generating Memory Summary...")
+        memory_result = self._generate_memory(prev_mem, exec_data, current_action)
         
         print("🧠 [Step 2/3] Updating State and generating State Summary...")
-        state_result = self._generate_state(prev_state, execution_data, memory_result["memory_summary"])
+        state_result = self._generate_state(prev_state, exec_data, memory_result["memory_summary"])
         
         print("🧠 [Step 3/3] Updating Report...")
-        report_result = self._generate_report(prev_report, execution_data, memory_result["memory_summary"], state_result["state_summary"])
+        report_result = self._generate_report(prev_report, exec_data, memory_result["memory_summary"], state_result["state_summary"])
 
         # 3. Save all 5 artifacts back to S3
         print(f"☁️ Saving cognitive artifacts to s3://{self.bucket}/{cog_prefix}/")
@@ -65,6 +70,7 @@ Update the agent's sequential memory with the new action and its result. Then, p
 Output JSON with keys: "updated_memory" (string), "memory_summary" (string)."""
         
         res = self._call_gemini_json(prompt)
+        
         # Enforce token cropping on the raw memory
         mem = res.get("updated_memory", "")
         if len(mem) > self.MAX_CHARS_MEMORY:
@@ -128,8 +134,3 @@ Output JSON with key: "updated_report" (string)."""
     def _write_s3_text(self, key: str, content: str):
         """Writes text directly to S3."""
         self.s3_client.put_object(Bucket=self.bucket, Key=key, Body=content.encode('utf-8'))
-
-    def _parse_execution_outputs(self, local_output_dir: str) -> dict:
-        """(Same logic as previous log parsing... returns dict with 'heads' and 'stderr')"""
-        # ... Insert the directory walking logic here to return strings ...
-        return {"heads": "...", "stderr": "..."}
