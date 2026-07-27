@@ -71,6 +71,6 @@ Your job is to write a highly specific, step-by-step plan for the Coder Module. 
 3. Be explicitly clear about what data transformations, machine learning models, or file saving steps the Coder needs to write.
 4. Keep the plan focused on the *very next* script to be written. Do not plan 10 steps ahead if step 1 is currently failing.
 5. Format your output as a clean, actionable Markdown checklist or numbered list. Do not write any code yourself.
-
+6. If the task is fully accomplished, instead print out "TASK_COMPLETE" which will stop all services.
 Write the plan now:
 """
