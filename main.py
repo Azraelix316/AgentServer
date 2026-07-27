@@ -1,5 +1,6 @@
 import os
 import time
+import shutil
 import boto3
 from botocore.exceptions import ClientError
 
@@ -11,9 +12,11 @@ from KaggleHelper import KaggleHelper
 from EC2S3Helper import EC2OutputSyncer
 from OutputLogParser import OutputLogParser
 from LogAgent import CognitiveManager
+
 AWS_PROFILE = "test_only"
 boto3.setup_default_session(profile_name=AWS_PROFILE)
 print(f"🔧 Configured boto3 session using local profile: '{AWS_PROFILE}'")
+
 class AgentTaskOrchestrator:
     def __init__(self, table_name: str = "AgentTasks"):
         print("🚀 Initializing Agent Task Orchestrator...")
@@ -27,6 +30,7 @@ class AgentTaskOrchestrator:
         self.kaggle_user = os.environ.get("KAGGLE_USERNAME")
         self.s3_bucket = os.environ.get("S3_BUCKET_NAME")
         self.webhook_url = os.environ.get("WEBHOOK_URL", "")
+        
         if not all([self.gemini_key, self.kaggle_user, self.s3_bucket]):
             raise ValueError("❌ Missing required environment variables (GEMINI_API_KEY, KAGGLE_USERNAME, S3_BUCKET_NAME).")
 
@@ -46,7 +50,7 @@ class AgentTaskOrchestrator:
         
         while True:
             try:
-                # 1. Fetch active tasks (scanning for simplicity; use a GSI for scale)
+                # 1. Fetch active tasks
                 response = self.table.scan()
                 tasks = response.get('Items', [])
                 
@@ -66,8 +70,9 @@ class AgentTaskOrchestrator:
         task_id = task.get('id')
         status = task.get('status')
         task_name = task.get('task_name', f'task-{task_id}')
+        cog_prefix = f"{task_name.lower().replace(' ', '-')}/memories"
         
-        # Skip tasks that are waiting on external systems or are permanently done
+        # Ignore tasks currently executing in external systems or finalized
         if status in ['running_kaggle', 'completed', 'failed_permanently']:
             return
 
@@ -75,99 +80,91 @@ class AgentTaskOrchestrator:
 
         try:
             # -------------------------------------------------------------
-            # STATE: QUEUED -> Needs a Plan
+            # STATE: QUEUED -> Synchronous Plan -> Code -> Push to Kaggle
             # -------------------------------------------------------------
             if status == 'queued':
-                # Fetch memory summary & last logs from S3 (or default to empty if new)
-                cog_prefix = f"{task_name.lower().replace(' ', '-')}/memories"
+                print(f"🧠 [1/3] Fetching memory summary from S3...")
                 mem_summary = self.cognition._read_s3_text(f"{cog_prefix}/memory_summary.txt")
-                
-                # We pull last heads/stderr from Dynamo if available, otherwise empty
-                last_heads = task.get('last_heads', '')
-                last_stderr = task.get('last_stderr', '')
-                
+
+                print(f"📋 [2/3] Generating plan...")
                 plan_str = self.planner.generate_plan(
-                    original_task_prompt=task.get('original_prompt', task_name),
+                    original_task_prompt=task.get('initial_model_prompt', task_name),
                     memory_content=mem_summary,
-                    last_heads=last_heads,
-                    last_stderr=last_stderr
+                    last_heads="",
+                    last_stderr=""
                 )
-                
-                update_task_status(task_id, 'planning_complete', self.table_name, {"current_plan": plan_str})
 
-            # -------------------------------------------------------------
-            # STATE: PLANNING_COMPLETE -> Needs Code
-            # -------------------------------------------------------------
-            elif status == 'planning_complete':
+                print(f"💻 [3/3] Generating executable Python code...")
                 code_str = self.coder.generate_code(
-                    original_task=task_name,
-                    current_plan=task.get('current_plan', '')
+                    original_task=task.get('initial_model_prompt', task_name),
+                    current_plan=plan_str
                 )
-                
-                if code_str:
-                    update_task_status(task_id, 'coding_complete', self.table_name, {"agent_code": code_str})
-                else:
-                    update_task_status(task_id, 'failed_generation', self.table_name)
 
-            # -------------------------------------------------------------
-            # STATE: CODING_COMPLETE -> Push to Kaggle
-            # -------------------------------------------------------------
-            elif status == 'coding_complete':
+                if not code_str:
+                    print("❌ Code generation failed. Marking status as failed_generation.")
+                    update_task_status(task_id, 'failed_generation', self.table_name)
+                    return
+
+                # Save the combined action (plan + code) directly to S3 for Cognition to read later
+                combined_action_log = f"PLAN:\n{plan_str}\n\nEXECUTED CODE:\n<code>\n{code_str}\n</code>"
+                self.cognition._write_s3_text(f"{cog_prefix}/latest_action.txt", combined_action_log)
+
+                # Push execution script to Kaggle
+                print(f"🚀 Pushing kernel to Kaggle...")
                 kernel_slug = self.kaggle.prepare_and_push(
                     task_id=task_id,
                     task_name=task_name,
-                    agent_python_code=task.get('agent_code', '')
+                    agent_python_code=code_str
                 )
-                
-                update_task_status(task_id, 'running_kaggle', self.table_name, {"kernel_slug": kernel_slug})
+
+                # Update DynamoDB with only lightweight status pointers
+                update_task_status(
+                    task_id=task_id,
+                    status='running_kaggle',
+                    table_name=self.table_name,
+                    additional_attributes={"kernel_slug": kernel_slug}
+                )
 
             # -------------------------------------------------------------
-            # STATE: KAGGLE_FINISHED -> Sync, Parse, and Update Cognition
-            # -------------------------------------------------------------
-            # (Assuming a webhook or external poller sets status to 'kaggle_finished')
-            # -------------------------------------------------------------
-            # STATE: KAGGLE_FINISHED -> Sync and Parse Local Files
-            # -------------------------------------------------------------
-# -------------------------------------------------------------
-            # STATE: SYNC_COMPLETE -> Parse Logs & Update Cognition
+            # STATE: SYNC_COMPLETE -> Parse Local Files & Update Cognition
             # -------------------------------------------------------------
             elif status == 'sync_complete':
                 kernel_slug = task.get('kernel_slug')
                 local_dir = f"/tmp/kaggle_outputs/{kernel_slug}"
 
-                # 1. Parse the local files downloaded by EC2OutputSyncer
+                print(f"📄 Parsing local execution outputs in {local_dir}...")
                 parsed_logs = self.parser.parse_directory(local_dir)
 
-                # 2. Run Cognitive Manager to update memories & state
+                # Retrieve the action log saved during the queued phase directly from S3
+                latest_action = self.cognition._read_s3_text(f"{cog_prefix}/latest_action.txt")
+                if not latest_action:
+                    latest_action = "Executed Kaggle script."
+
+                print(f"🧠 Updating memory, state, and report artifacts in S3...")
                 s3_memories_uri = self.cognition.update_agent_cognition(
                     task_name=task_name,
-                    current_action=task.get('current_plan', 'Executed Kaggle code'),
+                    current_action=latest_action,
                     execution_heads=parsed_logs["heads"],
                     execution_stderr=parsed_logs["stderr"]
                 )
 
-                # 3. Clean up local temporary files from disk
+                # Clean up local temporary files from EC2 disk
                 if os.path.exists(local_dir):
-                    import shutil
                     shutil.rmtree(local_dir)
 
-                # 4. Save execution logs and re-queue task for the Planner
+                # Reset task to 'queued' for the next iterative loop
                 update_task_status(
                     task_id=task_id,
                     status='queued', 
                     table_name=self.table_name,
-                    additional_attributes={
-                        "s3_memories_uri": s3_memories_uri,
-                        "last_heads": parsed_logs["heads"],
-                        "last_stderr": parsed_logs["stderr"]
-                    }
+                    additional_attributes={"s3_memories_uri": s3_memories_uri}
                 )
 
-            # Optional: Catch kaggle_success explicitly if something bypasses syncer
+            # -------------------------------------------------------------
+            # STATE: KAGGLE_SUCCESS / KAGGLE_FINISHED -> Sync Local Files
+            # -------------------------------------------------------------
             elif status in ['kaggle_success', 'kaggle_finished']:
-                # The task is waiting on EC2OutputSyncer to download files to disk.
-                # You can either let process_finished_tasks() handle it on its sweep,
-                # or manually trigger it here if needed:
+                print(f"📥 Triggering EC2OutputSyncer to pull Kaggle artifacts...")
                 self.syncer.process_finished_tasks()
 
             else:
@@ -175,13 +172,7 @@ class AgentTaskOrchestrator:
 
         except Exception as e:
             print(f"❌ Error processing task {task_id} in state '{status}': {e}")
-            # Optional: Implement a retry counter here before setting to failed_permanently
 
 if __name__ == "__main__":
-    # Ensure you have your environment variables set!
-    # export GEMINI_API_KEY="your_key"
-    # export KAGGLE_USERNAME="your_username"
-    # export S3_BUCKET_NAME="researchagentstorage"
-    
     orchestrator = AgentTaskOrchestrator(table_name="AgentTasks")
     orchestrator.run_loop(poll_interval_seconds=10)
