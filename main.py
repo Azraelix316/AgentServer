@@ -10,7 +10,10 @@ if __name__ == "__main__":
 
     agent_code = """
 import pandas as pd
+from pathlib import Path
 print("Performing analysis...")
+
+Path("filename.txt").touch()
 # Your agent's logic here
 """
 

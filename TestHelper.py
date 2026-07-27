@@ -13,7 +13,7 @@ print(f"🔧 Configured boto3 session using local profile: '{AWS_PROFILE}'")
 
 
 def run_autonomous_syncer_test():
-    TEST_BUCKET_NAME = os.environ.get("S3_BUCKET", "your-test-bucket-name")
+    TEST_BUCKET_NAME = os.environ.get("S3_BUCKET", "researchagentstorage")
     TEST_TABLE_NAME = os.environ.get("TABLE_NAME", "AgentTasks")
     
     # Path to local kaggle CLI binary
