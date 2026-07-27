@@ -22,7 +22,7 @@ class AgentTaskOrchestrator:
         
         # EC2 will automatically use its attached IAM Instance Profile.
         # No local profile or explicit keys needed for Boto3!
-        self.dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+        self.dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-southeast-2'))
         self.table = self.dynamodb.Table(self.table_name)
         
         # Load external service credentials
