@@ -30,7 +30,7 @@ class KaggleHelper:
         """
         # 1. Clean task_name into a slug for Kaggle metadata tagging
         safe_task_name = task_name.lower().replace(" ", "-")
-        unique_suffix = str(uuid.uuid4())[:8]
+        unique_suffix = str(uud.uuid4())[:8]
         kernel_slug = f"{safe_task_name}-{int(time.time())}-{unique_suffix}"
         kernel_id = f"{self.kaggle_username}/{kernel_slug}"
         
