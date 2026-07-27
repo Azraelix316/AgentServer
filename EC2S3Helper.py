@@ -9,7 +9,7 @@ class EC2OutputSyncer:
         self, 
         s3_bucket_name: str, 
         table_name: str = "AgentTasks",
-        venv_kaggle_path: str = ".venv/bin/kaggle"
+        venv_kaggle_path: str = "/home/ec2-user/AgentServer/venv/bin/kaggle"
     ):
         self.s3_bucket = s3_bucket_name
         self.venv_kaggle_path = venv_kaggle_path

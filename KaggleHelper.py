@@ -12,7 +12,7 @@ class KaggleHelper:
         kaggle_username: str, 
         webhook_url: str,
         table_name: str = "AgentTasks",
-        venv_kaggle_path: str = ".venv/bin/kaggle"
+        venv_kaggle_path: str = "/home/ec2-user/agent_app/venv/bin/kaggle"
     ):
         """
         :param kaggle_username: Kaggle account username.
