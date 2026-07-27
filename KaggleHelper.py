@@ -3,6 +3,7 @@ import json
 import time
 import uuid
 import subprocess
+import boto3
 from typing import Optional, List
 
 class KaggleHelper:
@@ -10,12 +11,22 @@ class KaggleHelper:
         self, 
         kaggle_username: str, 
         webhook_url: str,
-        # venv_kaggle_path: str = "/home/ec2-user/agent_app/venv/bin/kaggle"
-        venv_kaggle_path: str=".venv/bin/kaggle"
+        table_name: str = "AgentTasks",
+        venv_kaggle_path: str = ".venv/bin/kaggle"
     ):
+        """
+        :param kaggle_username: Kaggle account username.
+        :param webhook_url: Lambda task manager endpoint URL.
+        :param table_name: DynamoDB table name to update task state directly.
+        :param venv_kaggle_path: Executable path for Kaggle CLI.
+        """
         self.kaggle_username = kaggle_username.lower().strip()
         self.webhook_url = webhook_url
         self.venv_kaggle_path = venv_kaggle_path
+        
+        # Connect directly to DynamoDB to manage state & error handling
+        self.dynamodb = boto3.resource('dynamodb')
+        self.table = self.dynamodb.Table(table_name)
 
     def prepare_and_push(
         self, 
@@ -27,83 +38,118 @@ class KaggleHelper:
     ) -> str:
         """
         Packages code with task_name grouping, automated data loaders, and webhooks.
+        Manages task state transitions in DynamoDB directly.
         """
-        # 1. Clean task_name into a slug for Kaggle metadata tagging
         safe_task_name = task_name.lower().replace(" ", "-")
-        unique_suffix = str(uud.uuid4())[:8]
+        # Fixed uuid typo from uud.uuid4()
+        unique_suffix = str(uuid.uuid4())[:8]
         kernel_slug = f"{safe_task_name}-{int(time.time())}-{unique_suffix}"
         kernel_id = f"{self.kaggle_username}/{kernel_slug}"
         
         task_dir = os.path.join(base_dir, kernel_slug)
         os.makedirs(task_dir, exist_ok=True)
 
-        # 2. Build Notebook Cells
-        notebook_cells = []
+        try:
+            # 1. Build Notebook Cells
+            notebook_cells = []
 
-        # CELL 1: Automatic Data Ingestion
-        data_cell_code, dataset_sources = self._build_data_loader(database_link)
-        if data_cell_code:
-            notebook_cells.append(self._create_code_cell(data_cell_code))
+            # CELL 1: Automatic Data Ingestion
+            data_cell_code, dataset_sources = self._build_data_loader(database_link)
+            if data_cell_code:
+                notebook_cells.append(self._create_code_cell(data_cell_code))
 
-        # CELL 2: Core Agent Python Code
-        notebook_cells.append(self._create_code_cell(agent_python_code))
+            # CELL 2: Core Agent Python Code
+            notebook_cells.append(self._create_code_cell(agent_python_code))
 
-        # CELL 3: Automatic Webhook Callback & Telemetry with task_name
-        webhook_code = self._build_webhook_code(task_id, task_name, kernel_id)
-        notebook_cells.append(self._create_code_cell(webhook_code))
+            # CELL 3: Automatic Webhook Callback
+            webhook_code = self._build_webhook_code(task_id, task_name, kernel_id)
+            notebook_cells.append(self._create_code_cell(webhook_code))
 
-        # 3. Construct .ipynb file with kernelspec (Fixes Papermill error)
-        notebook_json = {
-            "cells": notebook_cells,
-            "metadata": {
-                "kernelspec": {
-                    "display_name": "Python 3",
-                    "language": "python",
-                    "name": "python3"
+            # 2. Construct .ipynb file with kernelspec
+            notebook_json = {
+                "cells": notebook_cells,
+                "metadata": {
+                    "kernelspec": {
+                        "display_name": "Python 3",
+                        "language": "python",
+                        "name": "python3"
+                    },
+                    "language_info": {
+                        "name": "python",
+                        "version": "3.10.0"
+                    }
                 },
-                "language_info": {
-                    "name": "python",
-                    "version": "3.10.0"
+                "nbformat": 4,
+                "nbformat_minor": 4
+            }
+
+            ipynb_path = os.path.join(task_dir, "script.ipynb")
+            with open(ipynb_path, "w") as f:
+                json.dump(notebook_json, f, indent=2)
+
+            # 3. Construct kernel-metadata.json
+            metadata = {
+                "id": kernel_id,
+                "title": f"[{task_name}] {kernel_slug}",
+                "code_file": "script.ipynb",
+                "language": "python",
+                "kernel_type": "notebook",
+                "is_private": "true",
+                "enable_internet": "true",
+                "dataset_sources": dataset_sources,
+                "keywords": [safe_task_name, task_id.lower()]
+            }
+
+            metadata_path = os.path.join(task_dir, "kernel-metadata.json")
+            with open(metadata_path, "w") as f:
+                json.dump(metadata, f, indent=2)
+
+            # 4. Push via Kaggle CLI
+            print(f"📤 Pushing kernel '{kernel_id}' under group '{task_name}'...")
+            result = subprocess.run(
+                [self.venv_kaggle_path, "kernels", "push", "-p", task_dir],
+                capture_output=True,
+                text=True
+            )
+
+            if result.returncode != 0:
+                raise RuntimeError(f"Kaggle CLI Push Error: {result.stderr}")
+
+            print(f"✅ Successfully pushed '{kernel_slug}' to Kaggle.")
+
+            # 5. SUCCESS: Update DynamoDB state to 'running_kaggle'
+            self.table.update_item(
+                Key={'id': task_id},
+                UpdateExpression="SET #st = :status, last_kernel_id = :kid",
+                ExpressionAttributeNames={"#st": "status"},
+                ExpressionAttributeValues={
+                    ":status": "running_kaggle",
+                    ":kid": kernel_id
                 }
-            },
-            "nbformat": 4,
-            "nbformat_minor": 4
-        }
+            )
+            print(f"📌 Task '{task_id}' state updated to 'running_kaggle' in DynamoDB.")
+            return kernel_slug
 
-        ipynb_path = os.path.join(task_dir, "script.ipynb")
-        with open(ipynb_path, "w") as f:
-            json.dump(notebook_json, f, indent=2)
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ Error handling triggered in KaggleHelper for task '{task_id}': {error_msg}")
+            
+            # FAILURE: Self-managed state update in DynamoDB
+            try:
+                self.table.update_item(
+                    Key={'id': task_id},
+                    UpdateExpression="SET #st = :status, last_log = :err",
+                    ExpressionAttributeNames={"#st": "status"},
+                    ExpressionAttributeValues={
+                        ":status": "push_failed",
+                        ":err": error_msg[:2000]
+                    }
+                )
+                print(f"📌 Task '{task_id}' state updated to 'push_failed' in DynamoDB.")
+            except Exception as db_err:
+                print(f"❌ Failed to update DynamoDB error state: {db_err}")
 
-        # 4. Construct kernel-metadata.json (Includes keywords/tags for grouping)
-        metadata = {
-            "id": kernel_id,
-            "title": f"[{task_name}] {kernel_slug}", # Includes task_name in Title
-            "code_file": "script.ipynb",
-            "language": "python",
-            "kernel_type": "notebook",
-            "is_private": "true",
-            "enable_internet": "true",
-            "dataset_sources": dataset_sources,
-            "keywords": [safe_task_name, task_id.lower()] # Tagged for collection grouping
-        }
-
-        metadata_path = os.path.join(task_dir, "kernel-metadata.json")
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2)
-
-        # 5. Push via Kaggle CLI
-        print(f"📤 Pushing kernel '{kernel_id}' under group '{task_name}'...")
-        result = subprocess.run(
-            [self.venv_kaggle_path, "kernels", "push", "-p", task_dir],
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode != 0:
-            raise RuntimeError(f"Kaggle push failed for '{kernel_slug}': {result.stderr}")
-
-        print(f"✅ Successfully pushed '{kernel_slug}' to Kaggle.")
-        return kernel_slug
+            raise e
 
     def _build_data_loader(self, database_link: Optional[str]) -> (Optional[str], List[str]):
         dataset_sources = []

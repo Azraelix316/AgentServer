@@ -1,4 +1,5 @@
 from KaggleHelper import KaggleHelper
+import boto3
 if __name__ == "__main__":
     AWS_PROFILE = "test_only"
     boto3.setup_default_session(profile_name=AWS_PROFILE)
