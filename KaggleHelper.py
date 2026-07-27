@@ -119,16 +119,16 @@ class KaggleHelper:
                 text=True
             )
 
-            if res.returncode != 0:
+            if result.returncode != 0:
                 error_details = (
                     f"\n--- KAGGLE PUSH FAILED ---"
-                    f"\nReturn Code: {res.returncode}"
-                    f"\nSTDOUT: {res.stdout.strip()}"
-                    f"\nSTDERR: {res.stderr.strip()}"
+                    f"\nReturn Code: {result.returncode}"
+                    f"\nSTDOUT: {result.stdout.strip()}"
+                    f"\nSTDERR: {result.stderr.strip()}"
                     f"\n---------------------------"
                 )
                 print(error_details)
-                raise RuntimeError(f"Kaggle CLI Push Error: STDOUT='{res.stdout.strip()}' STDERR='{res.stderr.strip()}'")
+                raise RuntimeError(f"Kaggle CLI Push Error: STDOUT='{result.stdout.strip()}' STDERR='{result.stderr.strip()}'")
 
             print(f"✅ Successfully pushed '{title_slug}' to Kaggle.")
 
