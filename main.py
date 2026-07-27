@@ -202,6 +202,7 @@ if __name__ == "__main__":
     # ---------------------------------------------------------
     print("🛑 Orchestrator finished. Shutting down EC2 instance to save costs.")
     try:
-        subprocess.run(["sudo", "shutdown", "-h", "+3"], check=True)
+        time.sleep(360)
+        subprocess.run(["sudo", "shutdown", "-h", "+2"], check=True)
     except Exception as e:
         print(f"Failed to execute shutdown command: {e}")
