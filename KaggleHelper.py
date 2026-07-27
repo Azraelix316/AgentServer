@@ -27,7 +27,6 @@ class KaggleHelper:
         # Connect directly to DynamoDB to manage state & error handling
         self.dynamodb = boto3.resource('dynamodb')
         self.table = self.dynamodb.Table(table_name)
-
     def prepare_and_push(
         self, 
         task_id: str, 
@@ -40,17 +39,24 @@ class KaggleHelper:
         Packages code with task_name grouping, automated data loaders, and webhooks.
         Manages task state transitions in DynamoDB directly.
         """
+        # 1. Generate the exact title string (e.g. "task-101-1785132775-c7968374")
         safe_task_name = task_name.lower().replace(" ", "-")
-        # Fixed uuid typo from uud.uuid4()
         unique_suffix = str(uuid.uuid4())[:8]
-        kernel_slug = f"{safe_task_name}-{int(time.time())}-{unique_suffix}"
-        kernel_id = f"{self.kaggle_username}/{kernel_slug}"
         
-        task_dir = os.path.join(base_dir, kernel_slug)
+        # TITLE IS THE SLUG SOURCE OF TRUTH
+        title_slug = f"{safe_task_name}-{int(time.time())}-{unique_suffix}"
+        
+        # Sanitize username (remove any spaces)
+        clean_username = self.kaggle_username.replace(" ", "")
+        
+        # Construct kernel_id where suffix after / MUST match title_slug
+        kernel_id = f"{clean_username}/{title_slug}"
+        
+        task_dir = os.path.join(base_dir, title_slug)
         os.makedirs(task_dir, exist_ok=True)
 
         try:
-            # 1. Build Notebook Cells
+            # 2. Build Notebook Cells
             notebook_cells = []
 
             # CELL 1: Automatic Data Ingestion
@@ -65,7 +71,7 @@ class KaggleHelper:
             webhook_code = self._build_webhook_code(task_id, task_name, kernel_id)
             notebook_cells.append(self._create_code_cell(webhook_code))
 
-            # 2. Construct .ipynb file with kernelspec
+            # 3. Construct .ipynb file with kernelspec
             notebook_json = {
                 "cells": notebook_cells,
                 "metadata": {
@@ -87,10 +93,11 @@ class KaggleHelper:
             with open(ipynb_path, "w") as f:
                 json.dump(notebook_json, f, indent=2)
 
-            # 3. Construct kernel-metadata.json
+            # 4. Construct kernel-metadata.json
+            # Both 'id' suffix and 'title' are explicitly forced to match
             metadata = {
                 "id": kernel_id,
-                "title": f"[{task_name}] {kernel_slug}",
+                "title": title_slug,  # Title is now identical to the slug suffix
                 "code_file": "script.ipynb",
                 "language": "python",
                 "kernel_type": "notebook",
@@ -104,8 +111,8 @@ class KaggleHelper:
             with open(metadata_path, "w") as f:
                 json.dump(metadata, f, indent=2)
 
-            # 4. Push via Kaggle CLI
-            print(f"📤 Pushing kernel '{kernel_id}' under group '{task_name}'...")
+            # 5. Push via Kaggle CLI
+            print(f"📤 Pushing kernel '{kernel_id}' under title '{title_slug}'...")
             result = subprocess.run(
                 [self.venv_kaggle_path, "kernels", "push", "-p", task_dir],
                 capture_output=True,
@@ -115,9 +122,9 @@ class KaggleHelper:
             if result.returncode != 0:
                 raise RuntimeError(f"Kaggle CLI Push Error: {result.stderr}")
 
-            print(f"✅ Successfully pushed '{kernel_slug}' to Kaggle.")
+            print(f"✅ Successfully pushed '{title_slug}' to Kaggle.")
 
-            # 5. SUCCESS: Update DynamoDB state to 'running_kaggle'
+            # 6. Update DynamoDB using the exact kernel_id
             self.table.update_item(
                 Key={'id': task_id},
                 UpdateExpression="SET #st = :status, last_kernel_id = :kid",
@@ -128,13 +135,12 @@ class KaggleHelper:
                 }
             )
             print(f"📌 Task '{task_id}' state updated to 'running_kaggle' in DynamoDB.")
-            return kernel_slug
+            return title_slug
 
         except Exception as e:
             error_msg = str(e)
             print(f"❌ Error handling triggered in KaggleHelper for task '{task_id}': {error_msg}")
             
-            # FAILURE: Self-managed state update in DynamoDB
             try:
                 self.table.update_item(
                     Key={'id': task_id},
