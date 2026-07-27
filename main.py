@@ -128,60 +128,48 @@ class AgentTaskOrchestrator:
             # -------------------------------------------------------------
             # STATE: KAGGLE_FINISHED -> Sync and Parse Local Files
             # -------------------------------------------------------------
-            elif status == 'kaggle_success':
-                kernel_slug = task.get('kernel_slug')
-                if not kernel_slug:
-                    print(f"❌ Missing kernel_slug for task {task_id}")
-                    update_task_status(task_id, 'failed_permanently', self.table_name)
-                    return
-
-                # 1. Sync files from S3/Kaggle to EC2
-                local_dir = f"/tmp/kaggle_outputs/{kernel_slug}"
-                s3_outputs_uri = self.syncer.process_finished_tasks(kernel_slug, task_name, local_dir)
-
-                # 2. Parse the local files into heads & stderr
-                parsed_logs = self.parser.parse_directory(local_dir)
-
-                # 3. Advance to sync_complete
-                update_task_status(
-                    task_id=task_id,
-                    status='sync_complete', 
-                    table_name=self.table_name,
-                    additional_attributes={
-                        "s3_output_uri": s3_outputs_uri,
-                        "last_heads": parsed_logs["heads"],
-                        "last_stderr": parsed_logs["stderr"],
-                        "local_output_dir": local_dir
-                    }
-                )
-
-            # -------------------------------------------------------------
-            # STATE: SYNC_COMPLETE -> Run Cognitive Manager
+# -------------------------------------------------------------
+            # STATE: SYNC_COMPLETE -> Parse Logs & Update Cognition
             # -------------------------------------------------------------
             elif status == 'sync_complete':
-                # Run Cognitive Manager using the parsed logs stored in DynamoDB
+                kernel_slug = task.get('kernel_slug')
+                local_dir = f"/tmp/kaggle_outputs/{kernel_slug}"
+
+                # 1. Parse the local files downloaded by EC2OutputSyncer
+                parsed_logs = self.parser.parse_directory(local_dir)
+
+                # 2. Run Cognitive Manager to update memories & state
                 s3_memories_uri = self.cognition.update_agent_cognition(
                     task_name=task_name,
                     current_action=task.get('current_plan', 'Executed Kaggle code'),
-                    execution_heads=task.get('last_heads', ''),
-                    execution_stderr=task.get('last_stderr', '')
+                    execution_heads=parsed_logs["heads"],
+                    execution_stderr=parsed_logs["stderr"]
                 )
 
-                # Clean up local temporary files from disk
-                local_dir = task.get('local_output_dir', f"/tmp/kaggle_outputs/{task.get('kernel_slug')}")
+                # 3. Clean up local temporary files from disk
                 if os.path.exists(local_dir):
                     import shutil
                     shutil.rmtree(local_dir)
 
-                # Re-queue the task for the Planner to start the next iteration
+                # 4. Save execution logs and re-queue task for the Planner
                 update_task_status(
                     task_id=task_id,
                     status='queued', 
                     table_name=self.table_name,
                     additional_attributes={
-                        "s3_memories_uri": s3_memories_uri
+                        "s3_memories_uri": s3_memories_uri,
+                        "last_heads": parsed_logs["heads"],
+                        "last_stderr": parsed_logs["stderr"]
                     }
                 )
+
+            # Optional: Catch kaggle_success explicitly if something bypasses syncer
+            elif status in ['kaggle_success', 'kaggle_finished']:
+                # The task is waiting on EC2OutputSyncer to download files to disk.
+                # You can either let process_finished_tasks() handle it on its sweep,
+                # or manually trigger it here if needed:
+                self.syncer.process_finished_tasks()
+
             else:
                 print(f"⚠️ Unhandled status '{status}' for task {task_id}")
 
