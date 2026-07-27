@@ -91,7 +91,7 @@ class AgentTaskOrchestrator:
 
                 print(f"📋 [2/3] Generating plan...")
                 plan_str = self.planner.generate_plan(
-                    initial_model_prompt=task.get('initial_model_prompt', task_name),
+                    original_task_prompt=task.get('initial_model_prompt', task_name),
                     memory_content=mem_summary,
                     last_heads="",
                     last_stderr=""
@@ -99,7 +99,7 @@ class AgentTaskOrchestrator:
 
                 print(f"💻 [3/3] Generating executable Python code...")
                 code_str = self.coder.generate_code(
-                    initial_model_prompt=task.get('initial_model_prompt', task_name),
+                    original_task=task.get('initial_model_prompt', task_name),
                     current_plan=plan_str
                 )
 
