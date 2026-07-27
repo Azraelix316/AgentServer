@@ -12,6 +12,7 @@ print("Performing analysis...")
 """
 
     slug = helper.prepare_and_push(
+        task_name="task-101",
         task_id="task-101",
         agent_python_code=agent_code,
         database_link="kaggle:zillow/zecon"
