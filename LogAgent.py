@@ -104,20 +104,59 @@ Output JSON with keys:
         }
 
     def _generate_state(self, prev_state: str, exec_data: dict, mem_summary: str) -> dict:
-        prompt = f"""You are the Project Management Module.
-Update the current project state (blockers, next steps, success/failure of last action).
+        prompt = f"""You are the Project Management Module tracking the operational trajectory of an autonomous agent.
+### PURPOSE
+Your job is to produce a dynamic, structured **Project State Document**. 
+Note: Do NOT write an analytical report of conclusions (that belongs in report.txt). Instead, capture operational progress, live hypotheses, blockers, and strategic direction.
 
+---
+
+### INPUT CONTEXT:
 [Memory Context]:
 {mem_summary}
 
 [Last Execution Outputs]:
-{exec_data['heads']}
+{exec_data.get('heads', '')}
 
 [Last Execution Errors]:
-{exec_data['stderr']}
+{exec_data.get('stderr', '')}
 
-[Previous State]:
-{prev_state if prev_state else "Initial State"}
+[Previous Project State Document]:
+{prev_state if prev_state else "No previous state. This is the initial run."}
+
+---
+
+### INSTRUCTIONS FOR OUTPUT FORMATTING:
+
+1. **`state_summary`** (1-2 sentences max):
+   - A single, high-level status string for rapid logging (e.g., "Run succeeded; feature engineering boosted validation score. Preparing model training phase.").
+
+2. **`updated_state`** (Full Markdown Document):
+   - MUST be a rich, comprehensive, multi-section Markdown string. 
+   - DO NOT summarize into a single line or short paragraph.
+   - Synthesize the [Previous Project State] with the [Last Execution Outputs/Errors] to update all sections.
+   - You MUST use the following exact structure:
+
+```markdown
+# Current Project State
+
+## 1. Last Action Result & Status
+- State whether the last run succeeded or failed.
+- Key operational takeaways from execution output/logs.
+
+## 2. Active Blockers & Risks
+- Current bugs, syntax errors, missing data, or computational limits.
+- Potential pitfalls for upcoming attempts.
+
+## 3. Current Ideas & Hypotheses
+- What active strategies or ideas are being tested right now?
+- What hypotheses were validated/invalidated by the last run?
+
+## 4. Cumulative Progress & Key Milestones
+- High-level record of what has been accomplished so far across all runs.
+
+## 5. Immediate Next Steps
+- Concrete, actionable steps for the next iteration.
 
 Output JSON with keys: "updated_state" (string), "state_summary" (string)."""
         
