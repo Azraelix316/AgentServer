@@ -2,7 +2,7 @@ import json
 import boto3
 import google.generativeai as genai
 from botocore.exceptions import ClientError
-
+import re
 class CognitiveManager:
     def __init__(self, gemini_api_key: str, s3_bucket: str, model_name: str = "gemini-3.5-flash-lite"):
         genai.configure(api_key=gemini_api_key)
