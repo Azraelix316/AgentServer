@@ -180,6 +180,31 @@ class AgentTaskOrchestrator:
                 print(f"📥 Triggering EC2OutputSyncer to pull Kaggle artifacts...")
                 self.syncer.process_finished_tasks()
 
+            elif status == 'kaggle_failed':
+                error_log = task.get('last_log', 'Kaggle execution failed with an unknown error.')
+                print(f"❌ Task '{task_id}' failed on Kaggle. Ingesting stack trace into memory...")
+
+                latest_action = self.cognition.read_s3_text(f"{cog_prefix}/latest_action.txt")
+                if not latest_action:
+                    latest_action = "Executed Kaggle script."
+
+                # Pass the Kaggle stack trace straight to CognitiveManager
+                s3_memories_uri = self.cognition.update_agent_cognition(
+                    task_name=task_name,
+                    current_action=latest_action,
+                    execution_heads="",
+                    execution_stderr=error_log
+                )
+
+                # Re-queue for the next loop iteration (Planner will read updated memory_summary.txt)
+                print("🔄 Error context saved to S3 memory. Re-queuing task for fix...")
+                update_task_status(
+                    task_id=task_id,
+                    status='queued', 
+                    table_name=self.table_name,
+                    additional_attributes={"s3_memories_uri": s3_memories_uri}
+                )
+
             else:
                 print(f"⚠️ Unhandled status '{status}' for task {task_id}")
 
