@@ -193,21 +193,24 @@ def send_callback(status, log_message):
         print(f"❌ Callback failed to send: {{e}}")
 """
 
-    def _build_wrapped_execution(self, data_cell_code: Optional[str], agent_python_code: str) -> str:
+   def _build_wrapped_execution(self, data_cell_code: Optional[str], agent_python_code: str) -> str:
         body_code = ""
         if data_cell_code:
             body_code += "# --- DATA LOADING ---\n" + data_cell_code.strip() + "\n\n"
-        
-        body_code += "# --- AGENT CODE ---\n" + agent_python_code.strip()
 
-        indented_body = textwrap.indent(body_code, "    ")
-
+        # Safely wrap the agent code in a raw multiline string so Python can parse the outer cell
         return f"""# Automatically injected execution wrapper by KaggleHelper
+import traceback
+
+AGENT_CODE = \"\"\"{agent_python_code.replace('"""', '\\"\\"\\"')}\"\"\"
+
 try:
-{indented_body}
+{textwrap.indent(data_cell_code or '', '    ')}
+    # Run agent code dynamically so SyntaxErrors occur at RUNTIME inside this try block
+    exec(AGENT_CODE, globals())
     print("✅ Execution completed successfully.")
     send_callback("kaggle_success", "Execution completed without uncaught exceptions.")
-except Exception as e:
+except BaseException as e:
     err_trace = traceback.format_exc()
     print("❌ Uncaught exception during Kaggle execution:")
     print(err_trace)
