@@ -167,19 +167,19 @@ Output JSON with key: "updated_report" (string)."""
             prompt,
             generation_config=genai.GenerationConfig(response_mime_type="application/json")
         )
-        
+
         raw_text = response.text
-        
+
         try:
-            # First try parsing standard JSON
+            # 1. Try standard JSON parsing
             return json.loads(raw_text, strict=False)
         except json.JSONDecodeError:
-            # Fix unescaped backslashes (e.g. replace single \ with \\ in string literals)
-            # using encoding backslashreplace escape handling
-            sanitized_text = raw_text.encode('utf-8', 'backslashreplace').decode('utf-8')
+            # 2. Fix unescaped backslashes using regex
+            # This replaces any single backslash NOT followed by valid JSON escape chars (", \, /, b, f, n, r, t, uXXXX)
+            sanitized_text = re.sub(r'\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', raw_text)
             try:
                 return json.loads(sanitized_text, strict=False)
             except json.JSONDecodeError as e:
                 print(f"❌ Failed to parse Gemini JSON output: {e}")
                 print(f"Raw Output:\n{raw_text[:500]}...")
-                raise e
+                raise e 
