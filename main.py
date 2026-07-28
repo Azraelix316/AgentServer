@@ -212,17 +212,37 @@ class AgentTaskOrchestrator:
             print(f"❌ Error processing task {task_id} in state '{status}': {e}")
 
 if __name__ == "__main__":
-    # Execute exactly once
+    if __name__ == "__main__":
     orchestrator = AgentTaskOrchestrator(table_name="AgentTasks")
-    orchestrator.run_once()
     
-    # ---------------------------------------------------------
-    # OPTIONAL COST-SAVING SAFEGUARD:
-    # Shut down the EC2 instance immediately after the script finishes.
-    # ---------------------------------------------------------
-    print("🛑 Orchestrator finished. Shutting down EC2 instance to save costs.")
+    # Define runtime duration (10 minutes = 600 seconds)
+    RUN_DURATION_SECONDS = 600
+    POLL_INTERVAL_SECONDS = 60  # Sleep time between table scans
+    
+    start_time = time.time()
+    print(f"⏰ Starting orchestrator continuous loop for {RUN_DURATION_SECONDS // 60} minutes...")
+    
     try:
-        time.sleep(360)
-        subprocess.run(["sudo", "shutdown", "-h", "+2"], check=True)
+        while (time.time() - start_time) < RUN_DURATION_SECONDS:
+            elapsed = int(time.time() - start_time)
+            remaining = RUN_DURATION_SECONDS - elapsed
+            print(f"\n⏱️ Elapsed: {elapsed}s | Remaining: {remaining}s")
+            
+            # Execute a pass over actionable tasks
+            orchestrator.run_once()
+            
+            # Pause before scanning DynamoDB again
+            time.sleep(POLL_INTERVAL_SECONDS)
+            
+    except KeyboardInterrupt:
+        print("\n⚠️ Loop manually interrupted.")
+    except Exception as e:
+        print(f"❌ Unexpected error in main loop: {e}")
+
+    # Shutdown safeguarding after the 10-minute window expires
+    print("🛑 10-minute execution window completed. Triggering EC2 shutdown...")
+    try:
+        # Shutdown immediately (+0) or with a slight grace period
+        subprocess.run(["sudo", "shutdown", "-h", "now"], check=True)
     except Exception as e:
         print(f"Failed to execute shutdown command: {e}")
