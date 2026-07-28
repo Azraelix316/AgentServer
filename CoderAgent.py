@@ -143,6 +143,20 @@ class CoderAgent:
 6. **MATPLOTLIB & PLOTS:** Set `matplotlib.use('Agg')` BEFORE importing `pyplot`. Save plots via `plt.savefig('filename.png')` and call `plt.close()`. NEVER use `plt.show()`.
 7. **CATEGORICAL DATA IN LIGHTGBM:** Explicitly handle categoricals via `df[col] = df[col].astype('category')` or standard label encoding.
 
+### STRICT STRING, F-STRING, AND PRINTING RULES (CRITICAL):
+# 1. NO NEWLINE CHARACTERS: You are STRICTLY FORBIDDEN from using the newline character (`\\n`) inside ANY strings, f-strings, or print statements.
+# 2. NO MULTILINE STRINGS: Do not span standard single (') or double (") quotes across multiple lines. 
+# 3. THE SAFE FORMATTING OPTION: If you need to output multiple lines of text (like a classification report or summary), you MUST use multiple independent `print()` statements.
+# 
+# ❌ BAD (Will cause SyntaxErrors):
+# print("Classification Report:\\n" + report)
+# print(f"Metrics:\\nAccuracy: {acc}")
+# 
+# ✅ GOOD (Solid formatting):
+# print("Classification Report:")
+# print(report)
+# print("Metrics:")
+# print(f"Accuracy: {acc}")
 ---
 
 ### OUTPUT FORMAT INSTRUCTIONS:
