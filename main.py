@@ -181,7 +181,7 @@ class AgentTaskOrchestrator:
                 self.syncer.process_finished_tasks()
 
             elif status == 'kaggle_failed':
-                error_log = task.get('last_log', 'Kaggle execution failed with an unknown error.')
+                error_log = str(task.get('last_log', 'Kaggle execution failed with an unknown error.'))
                 print(f"❌ Task '{task_id}' failed on Kaggle. Ingesting stack trace into memory...")
 
                 latest_action = self.cognition.read_s3_text(f"{cog_prefix}/latest_action.txt")
