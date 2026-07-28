@@ -101,30 +101,50 @@ class EC2OutputSyncer:
 
     def fetch_and_upload_to_s3(self, kernel_id: str, task_name: str, run_slug: str) -> str:
         """
-        1. Downloads output files from Kaggle kernel via CLI.
+        1. Downloads ONLY lightweight/non-binary output files from Kaggle kernel via CLI.
         2. Uploads them to s3://<bucket>/<task_name>/<run_slug>/ maintaining folder structure.
         """
         local_download_dir = f"/tmp/kaggle_outputs/{run_slug}"
         os.makedirs(local_download_dir, exist_ok=True)
-
-        print(f"📥 Pulling Kaggle outputs for '{kernel_id}' into '{local_download_dir}'...")
+    
+        # Regex pattern matching only text logs, lightweight data, reports, and plots
+        # Regex: matches files ending in .csv, .txt, .json, .log, .png, .jpg, .jpeg, .pdf, .html
+        allowed_file_pattern = r".*\.(csv|txt|json|log|png|jpg|jpeg|pdf|html)$"
+    
+        # Tuple of heavy binary extensions to skip if any manage to slip through locally
+        heavy_binary_extensions = (
+            '.safetensors', '.bin', '.pth', '.pt', '.ckpt', 
+            '.onnx', '.h5', '.db', '.sqlite', '.parquet', 
+            '.feather', '.zip', '.tar', '.gz', '.pkl', '.model'
+        )
+    
+        print(f"📥 Pulling lightweight Kaggle outputs for '{kernel_id}' into '{local_download_dir}'...")
         res = subprocess.run(
-            [self.venv_kaggle_path, "kernels", "output", kernel_id, "-p", local_download_dir],
+            [
+                self.venv_kaggle_path, "kernels", "output", kernel_id,
+                "-p", local_download_dir,
+                "--file-pattern", allowed_file_pattern
+            ],
             capture_output=True,
             text=True
         )
-
+    
         # Detailed CLI Error Catching
         if res.returncode != 0:
             cli_error = f"Kaggle CLI kernels output failed.\nReturn Code: {res.returncode}\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}"
             raise RuntimeError(cli_error)
-
+    
         safe_task_name = task_name.lower().replace(' ', '-')
         s3_prefix = f"{safe_task_name}/{run_slug}"
-
+    
         uploaded_count = 0
         for root, _, files in os.walk(local_download_dir):
             for file in files:
+                # Secondary Local Safety Guard: Skip heavy binary files
+                if file.lower().endswith(heavy_binary_extensions):
+                    print(f"⏩ Skipping heavy binary artifact locally: {file}")
+                    continue
+    
                 local_file_path = os.path.join(root, file)
                 
                 # PRESERVES FOLDER STRUCTURE (e.g. outputs/plots/chart.png)
@@ -134,10 +154,10 @@ class EC2OutputSyncer:
                 print(f"☁️ Uploading {rel_path} to s3://{self.s3_bucket}/{s3_key}")
                 self.s3_client.upload_file(local_file_path, self.s3_bucket, s3_key)
                 uploaded_count += 1
-
+    
         if uploaded_count == 0:
-            raise RuntimeError(f"No output files were downloaded from Kaggle for kernel '{kernel_id}'. Did the script save files to /kaggle/working/?")
-
+            print(f"⚠️ Warning: No matching lightweight output files were downloaded from Kaggle for kernel '{kernel_id}'.")
+    
         s3_uri = f"s3://{self.s3_bucket}/{s3_prefix}/"
-        print(f"✅ Synced {uploaded_count} artifacts to {s3_uri}")
+        print(f"✅ Synced {uploaded_count} lightweight artifacts to {s3_uri}")
         return s3_uri
