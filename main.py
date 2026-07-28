@@ -232,7 +232,7 @@ if __name__ == "__main__":
     orchestrator = AgentTaskOrchestrator(table_name="AgentTasks")
     
     # Define runtime duration (10 minutes = 600 seconds)
-    RUN_DURATION_SECONDS = 600
+    RUN_DURATION_SECONDS = 360
     POLL_INTERVAL_SECONDS = 60  # Sleep time between table scans
     
     start_time = time.time()
