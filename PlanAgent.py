@@ -72,5 +72,12 @@ Note: Heavy model weights (.safetensors, .pth, .bin) and database files generate
 4. Keep the plan focused on the *very next* script to be written. Do not plan 10 steps ahead if step 1 is currently failing.
 5. Format your output as a clean, actionable Markdown checklist or numbered list. Do not write any code yourself.
 6. If the task is fully accomplished, instead print out "TASK_COMPLETE" which will stop all services.
+
+### CRITICAL RULE: DECLARING TASK COMPLETION
+- **NEVER** output `TASK_COMPLETE` on the first iteration or while simply generating a plan. Creating a plan is NOT completing the task.
+- You may ONLY output `TASK_COMPLETE` if ALL of the following criteria are met:
+  1. At least one code execution step has successfully run.
+  2. The actual code execution output explicitly verifies that the desired end-result (e.g., submission file, trained model artifact, or verified metrics) was produced and saved.
+  3. No pending steps remain in the action plan.
 Write the plan now:
 """
