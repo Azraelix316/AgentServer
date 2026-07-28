@@ -96,7 +96,15 @@ class AgentTaskOrchestrator:
                     last_heads="",
                     last_stderr=""
                 )
-
+                if "TASK_COMPLETE" in plan_str:
+                    print("🎯 Planner detected 'TASK_COMPLETE'! Goal achieved. Stopping task.")
+                    update_task_status(
+                        task_id=task_id,
+                        status='completed',
+                        table_name=self.table_name,
+                        additional_attributes={"latest_plan": plan_str}
+                    )
+                    return  # Exit immediately without generating code or pushing to Kaggle
                 print(f"💻 [3/3] Generating executable Python code...")
                 code_str = self.coder.generate_code(
                     original_task=task.get('initial_model_prompt', task_name),
@@ -155,30 +163,14 @@ class AgentTaskOrchestrator:
                 # Clean up local temporary files from EC2 disk
                 if os.path.exists(local_dir):
                     shutil.rmtree(local_dir)
-
-                # ---------------------------------------------------------
-                # KEYWORD CHECK: Look for completion flag in model/script output
-                # ---------------------------------------------------------
-                completion_keyword = "TASK_COMPLETE"
-                execution_output_text = parsed_logs.get("heads", "")
-
-                if completion_keyword in execution_output_text:
-                    print(f"🎯 Completion keyword '{completion_keyword}' detected! Marking task as completed.")
-                    update_task_status(
-                        task_id=task_id,
-                        status='completed',
-                        table_name=self.table_name,
-                        additional_attributes={"s3_memories_uri": s3_memories_uri}
-                    )
-                else:
-                    # No completion keyword found -> re-queue for the next loop iteration
-                    print("🔄 Task ongoing. Re-queuing for next iteration...")
-                    update_task_status(
-                        task_id=task_id,
-                        status='queued', 
-                        table_name=self.table_name,
-                        additional_attributes={"s3_memories_uri": s3_memories_uri}
-                    )
+                # No completion keyword found -> re-queue for the next loop iteration
+                print("🔄 Task ongoing. Re-queuing for next iteration...")
+                update_task_status(
+                    task_id=task_id,
+                    status='queued', 
+                    table_name=self.table_name,
+                    additional_attributes={"s3_memories_uri": s3_memories_uri}
+                )
 
             # -------------------------------------------------------------
             # STATE: KAGGLE_SUCCESS / KAGGLE_FINISHED -> Sync Local Files
