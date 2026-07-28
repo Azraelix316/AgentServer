@@ -153,7 +153,10 @@ class AgentTaskOrchestrator:
                     task_id=task_id,
                     status='running_kaggle',
                     table_name=self.table_name,
-                    additional_attributes={"kernel_slug": kernel_slug}
+                    additional_attributes={
+                        "kernel_slug": kernel_slug,
+                        "latest_plan": plan_str  # <-- Add this line
+                    }
                 )
 
             # -------------------------------------------------------------
