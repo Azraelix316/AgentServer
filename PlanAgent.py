@@ -61,7 +61,7 @@ Your job is to write a highly specific, step-by-step plan for the Coder Module. 
 ### RESULTS FROM THE LAST EXECUTION:
 [Output File Heads]:
 {last_heads if last_heads else "No outputs generated in the last run."}
-
+Note: Heavy model weights (.safetensors, .pth, .bin) and database files generated during execution are retained in Kaggle storage and automatically excluded from local log syncs to save disk space.
 [Execution Errors (STDERR)]:
 {last_stderr if last_stderr else "No errors detected in the last run."}
 
