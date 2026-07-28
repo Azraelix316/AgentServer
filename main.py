@@ -127,6 +127,7 @@ class AgentTaskOrchestrator:
                 kernel_slug = self.kaggle.prepare_and_push(
                     task_id=task_id,
                     task_name=task_name,
+                    database_link=task.get('database_link'),  # <-- Fetches database_link from DynamoDB item if present
                     agent_python_code=code_str
                 )
 

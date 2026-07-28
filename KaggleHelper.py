@@ -2,6 +2,7 @@ import os
 import json
 import time
 import uuid
+import textwrap
 import subprocess
 import boto3
 from typing import Optional, List
@@ -27,6 +28,7 @@ class KaggleHelper:
         # Connect directly to DynamoDB to manage state & error handling
         self.dynamodb = boto3.resource('dynamodb')
         self.table = self.dynamodb.Table(table_name)
+
     def prepare_and_push(
         self, 
         task_id: str, 
@@ -37,19 +39,14 @@ class KaggleHelper:
     ) -> str:
         """
         Packages code with task_name grouping, automated data loaders, and webhooks.
-        Manages task state transitions in DynamoDB directly.
+        Wraps execution in a try-except block so the webhook callback ALWAYS fires.
         """
-        # 1. Generate the exact title string (e.g. "task-101-1785132775-c7968374")
+        # 1. Generate the exact title string
         safe_task_name = task_name.lower().replace(" ", "-")
         unique_suffix = str(uuid.uuid4())[:8]
-        
-        # TITLE IS THE SLUG SOURCE OF TRUTH
         title_slug = f"{safe_task_name}-{int(time.time())}-{unique_suffix}"
         
-        # Sanitize username (remove any spaces)
         clean_username = self.kaggle_username.replace(" ", "")
-        
-        # Construct kernel_id where suffix after / MUST match title_slug
         kernel_id = f"{clean_username}/{title_slug}"
         
         task_dir = os.path.join(base_dir, title_slug)
@@ -59,17 +56,18 @@ class KaggleHelper:
             # 2. Build Notebook Cells
             notebook_cells = []
 
-            # CELL 1: Automatic Data Ingestion
+            # CELL 1: Webhook Definition & Helper Setup
+            setup_cell_code = self._build_setup_and_webhook_header(task_id, task_name, kernel_id)
+            notebook_cells.append(self._create_code_cell(setup_cell_code))
+
+            # CELL 2: Main Execution Block (Wrapped in Try-Except)
             data_cell_code, dataset_sources = self._build_data_loader(database_link)
-            if data_cell_code:
-                notebook_cells.append(self._create_code_cell(data_cell_code))
-
-            # CELL 2: Core Agent Python Code
-            notebook_cells.append(self._create_code_cell(agent_python_code))
-
-            # CELL 3: Automatic Webhook Callback
-            webhook_code = self._build_webhook_code(task_id, task_name, kernel_id)
-            notebook_cells.append(self._create_code_cell(webhook_code))
+            
+            wrapped_execution_code = self._build_wrapped_execution(
+                data_cell_code=data_cell_code,
+                agent_python_code=agent_python_code
+            )
+            notebook_cells.append(self._create_code_cell(wrapped_execution_code))
 
             # 3. Construct .ipynb file with kernelspec
             notebook_json = {
@@ -94,10 +92,9 @@ class KaggleHelper:
                 json.dump(notebook_json, f, indent=2)
 
             # 4. Construct kernel-metadata.json
-            # Both 'id' suffix and 'title' are explicitly forced to match
             metadata = {
                 "id": kernel_id,
-                "title": title_slug,  # Title is now identical to the slug suffix
+                "title": title_slug,
                 "code_file": "script.ipynb",
                 "language": "python",
                 "kernel_type": "notebook",
@@ -165,59 +162,11 @@ class KaggleHelper:
 
             raise e
 
-    def _build_data_loader(self, database_link: Optional[str]) -> (Optional[str], List[str]):
-        dataset_sources = []
-        if not database_link:
-            return None, dataset_sources
-
-        database_link = database_link.strip()
-
-        if database_link.startswith("kaggle:"):
-            ds_slug = database_link.replace("kaggle:", "").strip()
-            dataset_sources.append(ds_slug)
-            code = f"""# Automatically injected by KaggleHelper
-import os
-print("📂 Kaggle dataset mounted at /kaggle/input/{ds_slug.split('/')[-1]}")
-"""
-            return code, dataset_sources
-
-        elif database_link.startswith("s3://"):
-            code = f"""# Automatically injected by KaggleHelper
-import boto3
-import os
-
-s3_uri = "{database_link}"
-parts = s3_uri.replace("s3://", "").split("/", 1)
-bucket_name, key = parts[0], parts[1]
-filename = os.path.basename(key)
-
-print(f"📥 Downloading {{s3_uri}} from S3...")
-s3 = boto3.client('s3')
-s3.download_file(bucket_name, key, filename)
-print(f"✅ Downloaded to /kaggle/working/{{filename}}")
-"""
-            return code, dataset_sources
-
-        elif database_link.startswith("http://") or database_link.startswith("https://"):
-            code = f"""# Automatically injected by KaggleHelper
-import urllib.request
-import os
-
-url = "{database_link}"
-filename = url.split("/")[-1].split("?")[0] or "data_file"
-
-print(f"📥 Downloading {{url}}...")
-urllib.request.urlretrieve(url, filename)
-print(f"✅ Downloaded to /kaggle/working/{{filename}}")
-"""
-            return code, dataset_sources
-
-        return None, dataset_sources
-
-    def _build_webhook_code(self, task_id: str, task_name: str, kernel_id: str) -> str:
+    def _build_setup_and_webhook_header(self, task_id: str, task_name: str, kernel_id: str) -> str:
         return f"""# Automatically injected by KaggleHelper
 import json
 import urllib.request
+import traceback
 
 WEBHOOK_URL = "{self.webhook_url}"
 TASK_ID = "{task_id}"
@@ -242,9 +191,74 @@ def send_callback(status, log_message):
             print(f"🔔 Callback sent successfully! Status: {{response.status}}")
     except Exception as e:
         print(f"❌ Callback failed to send: {{e}}")
-
-send_callback("kaggle_success", "Execution completed without uncaught exceptions.")
 """
+
+    def _build_wrapped_execution(self, data_cell_code: Optional[str], agent_python_code: str) -> str:
+        body_code = ""
+        if data_cell_code:
+            body_code += "# --- DATA LOADING ---\n" + data_cell_code.strip() + "\n\n"
+        
+        body_code += "# --- AGENT CODE ---\n" + agent_python_code.strip()
+
+        indented_body = textwrap.indent(body_code, "    ")
+
+        return f"""# Automatically injected execution wrapper by KaggleHelper
+try:
+{indented_body}
+    print("✅ Execution completed successfully.")
+    send_callback("kaggle_success", "Execution completed without uncaught exceptions.")
+except Exception as e:
+    err_trace = traceback.format_exc()
+    print("❌ Uncaught exception during Kaggle execution:")
+    print(err_trace)
+    send_callback("kaggle_failed", f"Execution failed with exception:\\n{{err_trace}}")
+"""
+
+    def _build_data_loader(self, database_link: Optional[str]) -> (Optional[str], List[str]):
+        dataset_sources = []
+        if not database_link:
+            return None, dataset_sources
+
+        database_link = database_link.strip()
+
+        if database_link.startswith("kaggle:"):
+            ds_slug = database_link.replace("kaggle:", "").strip()
+            dataset_sources.append(ds_slug)
+            code = f"""import os
+print("📂 Kaggle dataset mounted at /kaggle/input/{ds_slug.split('/')[-1]}")
+"""
+            return code, dataset_sources
+
+        elif database_link.startswith("s3://"):
+            code = f"""import boto3
+import os
+
+s3_uri = "{database_link}"
+parts = s3_uri.replace("s3://", "").split("/", 1)
+bucket_name, key = parts[0], parts[1]
+filename = os.path.basename(key)
+
+print(f"📥 Downloading {{s3_uri}} from S3...")
+s3 = boto3.client('s3')
+s3.download_file(bucket_name, key, filename)
+print(f"✅ Downloaded to /kaggle/working/{{filename}}")
+"""
+            return code, dataset_sources
+
+        elif database_link.startswith("http://") or database_link.startswith("https://"):
+            code = f"""import urllib.request
+import os
+
+url = "{database_link}"
+filename = url.split("/")[-1].split("?")[0] or "data_file"
+
+print(f"📥 Downloading {{url}}...")
+urllib.request.urlretrieve(url, filename)
+print(f"✅ Downloaded to /kaggle/working/{{filename}}")
+"""
+            return code, dataset_sources
+
+        return None, dataset_sources
 
     @staticmethod
     def _create_code_cell(source_code: str) -> dict:
