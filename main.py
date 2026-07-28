@@ -1,4 +1,7 @@
 import os
+env = os.environ.copy()
+env["GRPC_POLL_STRATEGY"] = "poll"
+env["GRPC_ENABLE_FORK_SUPPORT"] = "1"
 import time
 import shutil
 import boto3
@@ -119,9 +122,6 @@ class AgentTaskOrchestrator:
                 # Save the combined action (plan + code) directly to S3
                 combined_action_log = f"PLAN:\n{plan_str}\n\nEXECUTED CODE:\n<code>\n{code_str}\n</code>"
                 self.cognition.write_s3_text(f"{cog_prefix}/latest_action.txt", combined_action_log)
-                env = os.environ.copy()
-                env["GRPC_POLL_STRATEGY"] = "poll"
-                env["GRPC_ENABLE_FORK_SUPPORT"] = "1"
                 # Push execution script to Kaggle
                 print(f"🚀 Pushing kernel to Kaggle...")
                 kernel_slug = self.kaggle.prepare_and_push(
