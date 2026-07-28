@@ -212,7 +212,6 @@ class AgentTaskOrchestrator:
             print(f"❌ Error processing task {task_id} in state '{status}': {e}")
 
 if __name__ == "__main__":
-    if __name__ == "__main__":
     orchestrator = AgentTaskOrchestrator(table_name="AgentTasks")
     
     # Define runtime duration (10 minutes = 600 seconds)
