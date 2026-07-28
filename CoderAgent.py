@@ -8,7 +8,7 @@ class CoderAgent:
         """
         Initializes the Coder Agent with a prioritized model fallback queue.
         """
-        genai.configure(api_key=gemini_api_key)
+        genai.configure(api_key=gemini_api_key, transport="rest")
         
         # Priority fallback queue for rate-limit / availability resilience
         self.model_queue = [
@@ -78,7 +78,7 @@ class CoderAgent:
         for model_name in self.model_queue:
             try:
                 print(f"🤖 Invoking LLM: {model_name}...")
-                model = genai.GenerativeModel(model_name)
+                model = genai.GenerativeModel(model_name, transport="rest")
                 response = model.generate_content(prompt)
                 
                 if response and response.text:

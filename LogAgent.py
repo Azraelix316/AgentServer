@@ -5,8 +5,8 @@ from botocore.exceptions import ClientError
 import re
 class CognitiveManager:
     def __init__(self, gemini_api_key: str, s3_bucket: str, model_name: str = "gemini-3.5-flash-lite"):
-        genai.configure(api_key=gemini_api_key)
-        self.model = genai.GenerativeModel(model_name)
+        genai.configure(api_key=gemini_api_key, transport="rest")
+        self.model = genai.GenerativeModel(model_name, transport="rest")
         self.s3_client = boto3.client('s3')
         self.bucket = s3_bucket
         
