@@ -2,6 +2,7 @@ import os
 # Correctly set process environment variables
 os.environ["GRPC_POLL_STRATEGY"] = "poll"
 os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "1"
+os.environ["PYTHONHTTPSVERIFY"] = "1"
 import logging
 
 # Configure root logger to output timestamps and log levels
