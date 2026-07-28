@@ -150,13 +150,13 @@ class CoderAgent:
 # 
 # ❌ BAD (Will cause SyntaxErrors):
 # print("Classification Report:\\n" + report)
-# print(f"Metrics:\\nAccuracy: {acc}")
+# print(f"Metrics:\\nAccuracy: {{acc}}")
 # 
 # ✅ GOOD (Solid formatting):
 # print("Classification Report:")
 # print(report)
 # print("Metrics:")
-# print(f"Accuracy: {acc}")
+# print(f"Accuracy: {{acc}}")
 ---
 
 ### OUTPUT FORMAT INSTRUCTIONS:
