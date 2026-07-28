@@ -2,6 +2,22 @@ import os
 env = os.environ.copy()
 env["GRPC_POLL_STRATEGY"] = "poll"
 env["GRPC_ENABLE_FORK_SUPPORT"] = "1"
+import logging
+
+# Configure root logger to output timestamps and log levels
+logging.basicConfig(
+    level=logging.INFO, # Change to logging.DEBUG for maximum verbosity
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Silence noisy third-party loggers unless they throw errors
+logging.getLogger("botocore").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# Force google genai & grpc to output internal trace logs
+logging.getLogger("google").setLevel(logging.DEBUG)
+logging.getLogger("grpc").setLevel(logging.DEBUG)
 import time
 import shutil
 import boto3
