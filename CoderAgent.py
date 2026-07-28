@@ -9,32 +9,56 @@ class CoderAgent:
         genai.configure(api_key=gemini_api_key)
         self.model = genai.GenerativeModel(model_name)
 
-    def generate_code(self, original_task: str, current_plan: str) -> str:
+    def generate_code(self, original_task: str, current_plan: str, max_retries: int = 3) -> str:
         """
         Takes the planner's checklist and generates the corresponding Python script.
-        Extracts the code cleanly from the <code> XML tags.
+        Validates syntax locally using compile() and allows the LLM to self-correct up to max_retries.
+        Returns the last attempted code string if all retries fail.
         """
         print("💻 Coder Agent is writing the Python script based on the current plan...")
         
         prompt = self._build_coder_prompt(original_task, current_plan)
+        last_attempted_code = ""
 
-        try:
-            response = self.model.generate_content(prompt)
-            raw_output = response.text
-            
-            # Extract the code using Regex to target the XML blocks
-            clean_code = self._extract_code(raw_output)
-            
-            if not clean_code:
-                raise ValueError("LLM failed to wrap code in <code> tags.")
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = self.model.generate_content(prompt)
+                raw_output = response.text
                 
-            print("✅ Code generated and parsed successfully.")
-            return clean_code
-            
-        except Exception as e:
-            error_msg = f"❌ Gemini API Error in Coder: {str(e)}"
-            print(error_msg)
-            return ""
+                # Extract the code using Regex to target the XML blocks
+                clean_code = self._extract_code(raw_output)
+                
+                if not clean_code:
+                    raise ValueError("LLM failed to wrap code in <code> tags.")
+
+                last_attempted_code = clean_code
+
+                # --- PRE-FLIGHT SYNTAX VALIDATION ---
+                try:
+                    compile(clean_code, filename="<agent_generated_code>", mode="exec")
+                    print(f"✅ Code generated and syntactically validated (Attempt {attempt}/{max_retries}).")
+                    return clean_code
+
+                except SyntaxError as syntax_err:
+                    print(f"⚠️ Pre-flight SyntaxError detected (Attempt {attempt}/{max_retries}): {syntax_err}")
+                    
+                    # Feed the exact syntax error AND the broken code back into the prompt for self-correction
+                    prompt += (
+                        f"\n\n--- PREVIOUS ATTEMPT HAS SYNTAX ERRORS ---"
+                        f"\nYour previous attempt produced a SyntaxError during compilation:"
+                        f"\nError: {syntax_err.msg}"
+                        f"\nLine {syntax_err.lineno}: {syntax_err.text}"
+                        f"\n\nPrevious Code Attempt:\n<code>\n{clean_code}\n</code>"
+                        f"\n\nPlease rewrite the complete script fixing this syntax issue. Remember to wrap the output in <code> tags."
+                    )
+
+            except Exception as e:
+                error_msg = f"❌ Gemini API Error in Coder (Attempt {attempt}/{max_retries}): {str(e)}"
+                print(error_msg)
+                
+        print("❌ Coder Agent failed to produce syntactically valid code after maximum retries.")
+        # Return the last generated code snippet so the caller/Planner can analyze what went wrong
+        return last_attempted_code
 
     def _extract_code(self, raw_text: str) -> str:
         """
