@@ -162,9 +162,24 @@ Output JSON with key: "updated_report" (string)."""
         self.s3_client.put_object(Bucket=self.bucket, Key=key, Body=content.encode('utf-8'))
 
     def _call_gemini_json(self, prompt: str) -> dict:
-        """Helper to invoke Gemini with enforced JSON response structure."""
+        """Helper to invoke Gemini with enforced JSON response structure and escape sanitization."""
         response = self.model.generate_content(
             prompt,
             generation_config=genai.GenerationConfig(response_mime_type="application/json")
         )
-        return json.loads(response.text)
+        
+        raw_text = response.text
+        
+        try:
+            # First try parsing standard JSON
+            return json.loads(raw_text, strict=False)
+        except json.JSONDecodeError:
+            # Fix unescaped backslashes (e.g. replace single \ with \\ in string literals)
+            # using encoding backslashreplace escape handling
+            sanitized_text = raw_text.encode('utf-8', 'backslashreplace').decode('utf-8')
+            try:
+                return json.loads(sanitized_text, strict=False)
+            except json.JSONDecodeError as e:
+                print(f"❌ Failed to parse Gemini JSON output: {e}")
+                print(f"Raw Output:\n{raw_text[:500]}...")
+                raise e
