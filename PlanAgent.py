@@ -6,7 +6,7 @@ class PlannerAgent:
         Initializes the Planner Agent, responsible for strategizing the next coding step.
         """
         genai.configure(api_key=gemini_api_key, transport="rest")
-        self.model = genai.GenerativeModel(model_name,transport="rest")
+        self.model = genai.GenerativeModel(model_name)
 
     def generate_plan(
         self, 

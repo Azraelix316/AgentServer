@@ -78,7 +78,7 @@ class CoderAgent:
         for model_name in self.model_queue:
             try:
                 print(f"🤖 Invoking LLM: {model_name}...")
-                model = genai.GenerativeModel(model_name, transport="rest")
+                model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
                 
                 if response and response.text:
