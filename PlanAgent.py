@@ -110,7 +110,7 @@ Write the plan now:
             print(error_msg)
             return error_msg
 
-def _build_forked_planner_prompt(
+    def _build_forked_planner_prompt(
         self,
         new_task_prompt: str,
         status_content: str,
