@@ -112,7 +112,7 @@ class AgentTaskOrchestrator:
                 status_content = self.cognition.read_s3_text(f"{cog_prefix}/status.txt")
                 latest_action_code = self.cognition.read_s3_text(f"{cog_prefix}/latest_action.txt")
                 report_content = self.cognition.read_s3_text(f"{cog_prefix}/report.txt")
-                iteration = int(task_item.get('iteration', 1))
+                iteration = int(task.get('iteration', 1))
                 # Proxy check: Do prior memory files already exist on disk/S3?
                 memory_exists = bool(status_content or latest_action_code or report_content)
                 print(f"📋 [2/3] Generating plan...")
