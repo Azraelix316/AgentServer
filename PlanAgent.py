@@ -81,3 +81,81 @@ Note: Heavy model weights (.safetensors, .pth, .bin) and database files generate
   3. No pending steps remain in the action plan.
 Write the plan now:
 """
+    def plan_from_forked(
+        self,
+        new_task_prompt: str,
+        status_content: str,
+        latest_action_code: str,
+        report_content: str
+    ) -> str:
+        """
+        Generates an initial execution plan for a NEW task forked from a parent task.
+        Uses parent task artifacts (status.txt, latest_action.txt, report.txt) as context/boosters.
+        """
+        print("🔀 Planner Agent is bootstrapping plan for a FORKED task using parent context...")
+
+        prompt = self._build_forked_planner_prompt(
+            new_task_prompt,
+            status_content,
+            latest_action_code,
+            report_content
+        )
+
+        try:
+            response = self.model.generate_content(prompt)
+            print("✅ Plan for forked task generated successfully.")
+            return response.text
+        except Exception as e:
+            error_msg = f"❌ Gemini API Error in Planner (Forked Plan): {str(e)}"
+            print(error_msg)
+            return error_msg
+
+def _build_forked_planner_prompt(
+        self,
+        new_task_prompt: str,
+        status_content: str,
+        latest_action_code: str,
+        report_content: str
+    ) -> str:
+        """
+        Constructs the instructional prompt for initializing a forked task.
+        """
+        return f"""You are the Planner Module of an autonomous AI coding agent.
+This is Iteration 1 of a NEW TASK that has been forked from a prior task. 
+
+================================================================================
+SECTION 1: HISTORICAL PARENT CONTEXT (READ-ONLY REFERENCE / BOOSTER)
+================================================================================
+Use the historical artifacts below to understand what methods, feature processing steps, 
+or code structures worked in the parent task. DO NOT attempt to finish or continue 
+the parent task's original goal. Treat this purely as domain reference.
+
+[Parent Task Execution Status (status.txt)]:
+{status_content if status_content else "No status available."}
+
+[Parent Task Last Ran Code (latest_action.txt)]:
+```python
+{latest_action_code if latest_action_code else "# No code recorded from parent task."}
+[Parent Task Analytical Report (report.txt)]:
+{report_content if report_content else "No analytical report available."}
+
+================================================================================
+SECTION 2: YOUR ACTIVE NEW TASK CONTRACT (PRIMARY OBJECTIVE)
+NEW OVERARCHING GOAL:
+{new_task_prompt}
+
+INSTRUCTIONS FOR YOUR PLAN:
+Carefully review the NEW OVERARCHING GOAL above.
+
+Identify code snippets, feature pipelines, or data preparation logic from latest_action.txt or report.txt that can be reused to kickstart this new task.
+
+Formulate a step-by-step, actionable Markdown checklist for the Coder Module to build the initial Python script for this new task.
+
+Clearly specify what code to adapt from the parent's latest_action.txt versus what new logic needs to be written.
+
+Do not write any code yourself; produce a structured Markdown plan.
+
+Reset all assumptions. This is Iteration 1 of the new goal.
+
+Write the initial plan for the new task now:
+"""

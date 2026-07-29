@@ -108,14 +108,28 @@ class AgentTaskOrchestrator:
             if status == 'queued':
                 print(f"🧠 [1/3] Fetching memory summary from S3...")
                 mem_summary = self.cognition.read_s3_text(f"{cog_prefix}/memory_summary.txt")
-
+                # 2. Fetch existing memory files from S3 using task_name path
+                status_content = get_s3_file_content(f"{cog_prefix}/status.txt")
+                latest_action_code = get_s3_file_content(f"{cog_prefix}/latest_action.txt")
+                report_content = get_s3_file_content(f"{cog_prefix}/report.txt")
+                iteration = int(task_item.get('iteration', 1))
+                # Proxy check: Do prior memory files already exist on disk/S3?
+                memory_exists = bool(status_content or latest_action_code or report_content)
                 print(f"📋 [2/3] Generating plan...")
-                plan_str = self.planner.generate_plan(
-                    original_task_prompt=task.get('initial_model_prompt', task_name),
-                    memory_content=mem_summary,
-                    last_heads="",
-                    last_stderr=""
-                )
+                if iteration == 1 and memory_exists:
+                    plan_str = self.planner.generate_plan(
+                        original_task_prompt=task.get('initial_model_prompt', task_name),
+                        memory_content=mem_summary,
+                        last_heads="",
+                        last_stderr=""
+                    )
+                else:
+                    plan_str = self.planner.plan_from_forked(
+                        new_task_prompt=task.get('initial_model_prompt',task_name),
+                        status_content=status_content, 
+                        latest_action_code=latest_action_code,
+                        report_content=report_content 
+                    )
                 if "TASK_COMPLETE" in plan_str:
                     print("🎯 Planner detected 'TASK_COMPLETE'! Goal achieved. Stopping task.")
                     update_task_status(
@@ -148,14 +162,16 @@ class AgentTaskOrchestrator:
                     agent_python_code=code_str
                 )
 
-                # Update DynamoDB
+                next_iteration = iteration + 1
+                print(f"📈 Dispatched to Kaggle. Advancing task to Iteration {next_iteration}...")
                 update_task_status(
                     task_id=task_id,
                     status='running_kaggle',
                     table_name=self.table_name,
                     additional_attributes={
                         "kernel_slug": kernel_slug,
-                        "latest_plan": plan_str  # <-- Add this line
+                        "latest_plan": plan_str,
+                        "iteration": next_iteration  # <--- Increment stored here
                     }
                 )
 
