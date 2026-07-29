@@ -122,7 +122,7 @@ def _build_forked_planner_prompt(
         """
         return f"""You are the Planner Module of an autonomous AI coding agent.
 This is Iteration 1 of a NEW TASK that has been forked from a prior task. 
-
+YOU ARE NOT DONE YET! YOU ARE MERELY GETTING THE REPORTS OF A PAST VERSION! DO NOT OUTPUT TASK COMPLETE!
 ================================================================================
 SECTION 1: HISTORICAL PARENT CONTEXT (READ-ONLY REFERENCE / BOOSTER)
 ================================================================================
