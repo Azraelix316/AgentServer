@@ -100,6 +100,7 @@ class KaggleHelper:
                 "is_private": "true",
                 "enable_internet": "true",
                 "dataset_sources": dataset_sources,
+                "competition_sources": competition_sources,
                 "keywords": [safe_task_name, task_id.lower()]
             }
 
