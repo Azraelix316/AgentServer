@@ -117,18 +117,18 @@ class AgentTaskOrchestrator:
                 memory_exists = bool(status_content or latest_action_code or report_content)
                 print(f"📋 [2/3] Generating plan...")
                 if iteration == 1 and memory_exists:
-                    plan_str = self.planner.generate_plan(
-                        original_task_prompt=task.get('initial_model_prompt', task_name),
-                        memory_content=mem_summary,
-                        last_heads="",
-                        last_stderr=""
-                    )
-                else:
                     plan_str = self.planner.plan_from_forked(
                         new_task_prompt=task.get('initial_model_prompt',task_name),
                         status_content=status_content, 
                         latest_action_code=latest_action_code,
                         report_content=report_content 
+                    )
+                else:
+                    plan_str = self.planner.generate_plan(
+                        original_task_prompt=task.get('initial_model_prompt', task_name),
+                        memory_content=mem_summary,
+                        last_heads="",
+                        last_stderr=""
                     )
                 if "TASK_COMPLETE" in plan_str:
                     print("🎯 Planner detected 'TASK_COMPLETE'! Goal achieved. Stopping task.")
