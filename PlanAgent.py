@@ -63,7 +63,7 @@ class PlannerAgent:
         try:
             # We use standard text generation here, as the coder usually 
             # does better reading a structured markdown plan rather than raw JSON.
-            response = self.model._call_gemini_with_fallback(prompt)
+            response = self._call_gemini_with_fallback(prompt)
             print("✅ Plan generated successfully.")
             return response.text
         except Exception as e:
@@ -134,7 +134,7 @@ Write the plan now:
         )
 
         try:
-            response = self.model._call_gemini_with_fallback(prompt)
+            response = self._call_gemini_with_fallback(prompt)
             print("✅ Plan for forked task generated successfully.")
             return response.text
         except Exception as e:
