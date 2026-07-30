@@ -65,7 +65,7 @@ class PlannerAgent:
             # does better reading a structured markdown plan rather than raw JSON.
             response = self._call_gemini_with_fallback(prompt)
             print("✅ Plan generated successfully.")
-            return response.text
+            return response
         except Exception as e:
             error_msg = f"❌ Gemini API Error in Planner: {str(e)}"
             print(error_msg)
@@ -136,7 +136,7 @@ Write the plan now:
         try:
             response = self._call_gemini_with_fallback(prompt)
             print("✅ Plan for forked task generated successfully.")
-            return response.text
+            return response
         except Exception as e:
             error_msg = f"❌ Gemini API Error in Planner (Forked Plan): {str(e)}"
             print(error_msg)
