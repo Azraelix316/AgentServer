@@ -63,13 +63,13 @@ class AgentTaskOrchestrator:
         Executes a single pass over the DynamoDB table to process actionable tasks.
         Designed to run on a transient EC2 instance and exit when finished.
         """
-        self.gemini_key = task.get('api_key') or self.gemini_key
+        api_key = task.get('api_key') or self.gemini_key
         print("🔄 Starting Orchestrator Single-Pass Execution...\n")
         # assigner.assign_queues(task) returns a list of queues: [planner_q, coder_q, log_q]
         planner_queue, coder_queue, log_queue = assigner.assign_queues(task)
-        self.planner = PlannerAgent(gemini_api_key=self.gemini_key,model_queue=planner_queue)
-        self.coder = CoderAgent(gemini_api_key=self.gemini_key,model_queue=coder_queue)
-        self.cognition = CognitiveManager(gemini_api_key=self.gemini_key, s3_bucket=self.s3_bucket, model_queue=log_queue)
+        self.planner = PlannerAgent(gemini_api_key=api_key,model_queue=planner_queue)
+        self.coder = CoderAgent(gemini_api_key=api_key,model_queue=coder_queue)
+        self.cognition = CognitiveManager(gemini_api_key=api_key, s3_bucket=self.s3_bucket, model_queue=log_queue)
         try:
             # 1. Fetch active tasks
             response = self.table.scan()
