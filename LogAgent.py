@@ -11,7 +11,7 @@ class CognitiveManager:
         self.bucket = s3_bucket
         
         # Max tokens limit (~4 chars per token -> 150k tokens = 600,000 chars)
-        self.MAX_CHARS_MEMORY = 150000 * 4
+        self.MAX_CHARS_MEMORY = 120000 * 4
 
     def update_agent_cognition(self, task_name: str, current_action: str, execution_heads: str, execution_stderr: str) -> str:
         """
