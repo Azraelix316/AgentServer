@@ -34,7 +34,7 @@ class LLMAssigner:
         """
         # Default requested models if none provided
         is_private = task.get('is_private', False)
-        default_models = ['gemini-2.5-flash', 'gemini-2.5-flash'] if is_private else ['gemini-2.5-flash-lite', 'gemini-2.5-flash-lite']
+        default_models = ['gemini-3.5-flash-lite', 'gemini-3.6-flash','gemini-3.5-flash-lite'] if is_private else ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite','gemini-3.5-flash-lite']
         
         requested_models = task.get('models') or default_models
 
