@@ -33,7 +33,8 @@ from KaggleHelper import KaggleHelper
 from EC2S3Helper import EC2OutputSyncer
 from OutputLogParser import OutputLogParser
 from LogAgent import CognitiveManager
-
+from EmailHelper import send_task_completion_email
+from LLMAssigner import LLMAssigner
 class AgentTaskOrchestrator:
     def __init__(self, table_name: str = "AgentTasks"):
         print("🚀 Initializing Ephemeral Agent Task Orchestrator...")
@@ -50,25 +51,18 @@ class AgentTaskOrchestrator:
         self.kaggle_user = os.environ.get("KAGGLE_USERNAME")
         self.s3_bucket = os.environ.get("S3_BUCKET_NAME")
         self.webhook_url = os.environ.get("WEBHOOK_URL", "")
-        
         if not all([self.gemini_key, self.kaggle_user, self.s3_bucket]):
             raise ValueError("❌ Missing required environment variables (GEMINI_API_KEY, KAGGLE_USERNAME, S3_BUCKET_NAME).")
 
         # Initialize Helpers
-        self.planner = PlannerAgent(gemini_api_key=self.gemini_key)
-        self.coder = CoderAgent(gemini_api_key=self.gemini_key)
         self.kaggle = KaggleHelper(kaggle_username=self.kaggle_user, webhook_url=self.webhook_url)
         self.syncer = EC2OutputSyncer(s3_bucket_name=self.s3_bucket)
         self.parser = OutputLogParser(max_head_lines=50)
-        self.cognition = CognitiveManager(gemini_api_key=self.gemini_key, s3_bucket=self.s3_bucket)
-
     def run_once(self):
         """
         Executes a single pass over the DynamoDB table to process actionable tasks.
         Designed to run on a transient EC2 instance and exit when finished.
         """
-        print("🔄 Starting Orchestrator Single-Pass Execution...\n")
-        
         try:
             # 1. Fetch active tasks
             response = self.table.scan()
@@ -98,9 +92,15 @@ class AgentTaskOrchestrator:
         status = task.get('status')
         task_name = task.get('task_name', f'task-{task_id}')
         cog_prefix = f"{task_name.lower().replace(' ', '-')}/memories"
-
+        self.assigner = LLMAssigner();
         print(f"\n⚙️ Processing Task: {task_id} | Current Status: {status}")
-
+        api_key = task.get('api_key') or self.gemini_key
+        print("🔄 Starting Orchestrator Single-Pass Execution...\n")
+        # assigner.assign_queues(task) returns a list of queues: [planner_q, coder_q, log_q]
+        planner_queue, coder_queue, log_queue = self.assigner.assign_queues(task)
+        self.planner = PlannerAgent(gemini_api_key=api_key,model_queue=planner_queue)
+        self.coder = CoderAgent(gemini_api_key=api_key,model_queue=coder_queue)
+        self.cognition = CognitiveManager(gemini_api_key=api_key, s3_bucket=self.s3_bucket, model_queue=log_queue)
         try:
             # -------------------------------------------------------------
             # STATE: QUEUED -> Synchronous Plan -> Code -> Push to Kaggle
@@ -108,14 +108,28 @@ class AgentTaskOrchestrator:
             if status == 'queued':
                 print(f"🧠 [1/3] Fetching memory summary from S3...")
                 mem_summary = self.cognition.read_s3_text(f"{cog_prefix}/memory_summary.txt")
-
+                # 2. Fetch existing memory files from S3 using task_name path
+                status_content = self.cognition.read_s3_text(f"{cog_prefix}/status.txt")
+                latest_action_code = self.cognition.read_s3_text(f"{cog_prefix}/latest_action.txt")
+                report_content = self.cognition.read_s3_text(f"{cog_prefix}/report.txt")
+                iteration = int(task.get('iteration', 1))
+                # Proxy check: Do prior memory files already exist on disk/S3?
+                memory_exists = bool(status_content or latest_action_code or report_content)
                 print(f"📋 [2/3] Generating plan...")
-                plan_str = self.planner.generate_plan(
-                    original_task_prompt=task.get('initial_model_prompt', task_name),
-                    memory_content=mem_summary,
-                    last_heads="",
-                    last_stderr=""
-                )
+                if iteration == 1 and memory_exists:
+                    plan_str = self.planner.plan_from_forked(
+                        new_task_prompt=task.get('initial_model_prompt',task_name),
+                        status_content=status_content, 
+                        latest_action_code=latest_action_code,
+                        report_content=report_content 
+                    )
+                else:
+                    plan_str = self.planner.generate_plan(
+                        original_task_prompt=task.get('initial_model_prompt', task_name),
+                        memory_content=mem_summary,
+                        last_heads="",
+                        last_stderr=""
+                    )
                 if "TASK_COMPLETE" in plan_str:
                     print("🎯 Planner detected 'TASK_COMPLETE'! Goal achieved. Stopping task.")
                     update_task_status(
@@ -124,6 +138,7 @@ class AgentTaskOrchestrator:
                         table_name=self.table_name,
                         additional_attributes={"latest_plan": plan_str}
                     )
+                    send_task_completion_email(task_id=task_id,task_name=task_name,status="Completed!",report_summary=report_content)
                     return  # Exit immediately without generating code or pushing to Kaggle
                 print(f"💻 [3/3] Generating executable Python code...")
                 code_str = self.coder.generate_code(
@@ -148,14 +163,16 @@ class AgentTaskOrchestrator:
                     agent_python_code=code_str
                 )
 
-                # Update DynamoDB
+                next_iteration = iteration + 1
+                print(f"📈 Dispatched to Kaggle. Advancing task to Iteration {next_iteration}...")
                 update_task_status(
                     task_id=task_id,
                     status='running_kaggle',
                     table_name=self.table_name,
                     additional_attributes={
                         "kernel_slug": kernel_slug,
-                        "latest_plan": plan_str  # <-- Add this line
+                        "latest_plan": plan_str,
+                        "iteration": next_iteration  # <--- Increment stored here
                     }
                 )
 
@@ -235,7 +252,7 @@ if __name__ == "__main__":
     orchestrator = AgentTaskOrchestrator(table_name="AgentTasks")
     
     # Define runtime duration (10 minutes = 600 seconds)
-    RUN_DURATION_SECONDS = 360
+    RUN_DURATION_SECONDS = 300
     POLL_INTERVAL_SECONDS = 60  # Sleep time between table scans
     
     start_time = time.time()
@@ -257,11 +274,12 @@ if __name__ == "__main__":
         print("\n⚠️ Loop manually interrupted.")
     except Exception as e:
         print(f"❌ Unexpected error in main loop: {e}")
-
+    # last resort sleep
+    time.sleep(180)
     # Shutdown safeguarding after the 10-minute window expires
     print("🛑 10-minute execution window completed. Triggering EC2 shutdown...")
     try:
         # Shutdown immediately (+0) or with a slight grace period
-        subprocess.run(["sudo", "shutdown", "-h", "now"], check=True)
+        subprocess.run(["sudo", "shutdown", "-h", "+3"], check=True)
     except Exception as e:
         print(f"Failed to execute shutdown command: {e}")

@@ -2,12 +2,44 @@ import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, GoogleAPICallError
 
 class PlannerAgent:
-    def __init__(self, gemini_api_key: str, model_name: str = "gemini-3.5-flash-lite"):
+    def __init__(self, gemini_api_key: str, model_queue: list[str] = None):
         """
         Initializes the Planner Agent, responsible for strategizing the next coding step.
         """
         genai.configure(api_key=gemini_api_key, transport="rest")
-        self.model = genai.GenerativeModel(model_name)
+        self.model_queue=model_queue or [
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemma-4-31b-it"
+        ]
+    
+    def _call_gemini_with_fallback(self, prompt: str) -> str:
+        """
+        Sequentially tries models in self.model_queue on rate limit or API error.
+        """
+        last_error = None
+        for model_name in self.model_queue:
+            try:
+                print(f"🤖 Planner invoking LLM: {model_name}...")
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                
+                if response and response.text:
+                    return response.text
+
+            except ResourceExhausted:
+                print(f"🚨 Rate limit (429) hit for '{model_name}' in Planner. Failing over...")
+                continue
+            except GoogleAPICallError as e:
+                print(f"⚠️ API call error on '{model_name}' in Planner: {e}. Failing over...")
+                last_error = e
+                continue
+            except Exception as e:
+                print(f"❌ Unexpected error calling Planner model '{model_name}': {e}")
+                last_error = e
+                continue
+
+        raise RuntimeError(f"All Planner model fallbacks failed. Last error: {last_error}")
 
     def generate_plan(
         self, 
@@ -32,9 +64,9 @@ class PlannerAgent:
         try:
             # We use standard text generation here, as the coder usually 
             # does better reading a structured markdown plan rather than raw JSON.
-            response = self.model.generate_content(prompt)
+            response = self._call_gemini_with_fallback(prompt)
             print("✅ Plan generated successfully.")
-            return response.text
+            return response
         except Exception as e:
             error_msg = f"❌ Gemini API Error in Planner: {str(e)}"
             print(error_msg)
@@ -81,4 +113,82 @@ Note: Heavy model weights (.safetensors, .pth, .bin) and database files generate
   2. The actual code execution output explicitly verifies that the desired end-result (e.g., submission file, trained model artifact, or verified metrics) was produced and saved.
   3. No pending steps remain in the action plan.
 Write the plan now:
+"""
+    def plan_from_forked(
+        self,
+        new_task_prompt: str,
+        status_content: str,
+        latest_action_code: str,
+        report_content: str
+    ) -> str:
+        """
+        Generates an initial execution plan for a NEW task forked from a parent task.
+        Uses parent task artifacts (status.txt, latest_action.txt, report.txt) as context/boosters.
+        """
+        print("🔀 Planner Agent is bootstrapping plan for a FORKED task using parent context...")
+
+        prompt = self._build_forked_planner_prompt(
+            new_task_prompt,
+            status_content,
+            latest_action_code,
+            report_content
+        )
+
+        try:
+            response = self._call_gemini_with_fallback(prompt)
+            print("✅ Plan for forked task generated successfully.")
+            return response
+        except Exception as e:
+            error_msg = f"❌ Gemini API Error in Planner (Forked Plan): {str(e)}"
+            print(error_msg)
+            return error_msg
+
+    def _build_forked_planner_prompt(
+        self,
+        new_task_prompt: str,
+        status_content: str,
+        latest_action_code: str,
+        report_content: str
+    ) -> str:
+        """
+        Constructs the instructional prompt for initializing a forked task.
+        """
+        return f"""You are the Planner Module of an autonomous AI coding agent.
+This is Iteration 1 of a NEW TASK that has been forked from a prior task. 
+YOU ARE NOT DONE YET! YOU ARE MERELY GETTING THE REPORTS OF A PAST VERSION! DO NOT OUTPUT TASK COMPLETE!
+================================================================================
+SECTION 1: HISTORICAL PARENT CONTEXT (READ-ONLY REFERENCE / BOOSTER)
+================================================================================
+Use the historical artifacts below to understand what methods, feature processing steps, 
+or code structures worked in the parent task. DO NOT attempt to finish or continue 
+the parent task's original goal. Treat this purely as domain reference.
+
+[Parent Task Execution Status (status.txt)]:
+{status_content if status_content else "No status available."}
+
+[Parent Task Last Ran Code (latest_action.txt)]:
+```python
+{latest_action_code if latest_action_code else "# No code recorded from parent task."}
+[Parent Task Analytical Report (report.txt)]:
+{report_content if report_content else "No analytical report available."}
+
+================================================================================
+SECTION 2: YOUR ACTIVE NEW TASK CONTRACT (PRIMARY OBJECTIVE)
+NEW OVERARCHING GOAL:
+{new_task_prompt}
+
+INSTRUCTIONS FOR YOUR PLAN:
+Carefully review the NEW OVERARCHING GOAL above.
+
+Identify code snippets, feature pipelines, or data preparation logic from latest_action.txt or report.txt that can be reused to kickstart this new task.
+
+Formulate a step-by-step, actionable Markdown checklist for the Coder Module to build the initial Python script for this new task.
+
+Clearly specify what code to adapt from the parent's latest_action.txt versus what new logic needs to be written.
+
+Do not write any code yourself; produce a structured Markdown plan.
+
+Reset all assumptions. This is Iteration 1 of the new goal.
+
+Write the initial plan for the new task now:
 """

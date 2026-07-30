@@ -61,8 +61,7 @@ class KaggleHelper:
             notebook_cells.append(self._create_code_cell(setup_cell_code))
 
             # CELL 2: Main Execution Block (Wrapped in Try-Except)
-            data_cell_code, dataset_sources = self._build_data_loader(database_link)
-            
+            data_cell_code, dataset_sources, competition_sources = self._build_data_loader(database_link)            
             wrapped_execution_code = self._build_wrapped_execution(
                 data_cell_code=data_cell_code,
                 agent_python_code=agent_python_code
@@ -101,6 +100,7 @@ class KaggleHelper:
                 "is_private": "true",
                 "enable_internet": "true",
                 "dataset_sources": dataset_sources,
+                "competition_sources": competition_sources,
                 "keywords": [safe_task_name, task_id.lower()]
             }
 
@@ -219,20 +219,43 @@ except BaseException as e:
     send_callback("kaggle_failed", f"Execution failed with exception:\\n{{err_trace}}")
 """
 
-    def _build_data_loader(self, database_link: Optional[str]) -> (Optional[str], List[str]):
+    def _build_data_loader(self, database_link: Optional[str]):
         dataset_sources = []
+        competition_sources = []
         if not database_link:
-            return None, dataset_sources
+            return None, dataset_sources, competition_sources
 
         database_link = database_link.strip()
 
+        # Handle Kaggle Datasets & Competitions
         if database_link.startswith("kaggle:"):
-            ds_slug = database_link.replace("kaggle:", "").strip()
-            dataset_sources.append(ds_slug)
-            code = f"""import os
-print("📂 Kaggle dataset mounted at /kaggle/input/{ds_slug.split('/')[-1]}")
+            clean_link = database_link.replace("kaggle:", "").strip()
+            
+            # Check if explicitly designated as a competition
+            if clean_link.startswith("competition:") or clean_link.startswith("competitions/"):
+                comp_slug = clean_link.replace("competition:", "").replace("competitions/", "").strip()
+                competition_sources.append(comp_slug)
+                code = f"""import os
+print("📂 Kaggle competition dataset mounted at /kaggle/input/{comp_slug}")
 """
-            return code, dataset_sources
+                return code, dataset_sources, competition_sources
+
+            # Check if it contains a slash '/' -> Standard Dataset (username/dataset)
+            elif "/" in clean_link:
+                dataset_sources.append(clean_link)
+                ds_name = clean_link.split('/')[-1]
+                code = f"""import os
+print("📂 Kaggle dataset mounted at /kaggle/input/{ds_name}")
+"""
+                return code, dataset_sources, competition_sources
+
+            # Single string without slash -> Default to Competition Slug (e.g. kaggle:titanic)
+            else:
+                competition_sources.append(clean_link)
+                code = f"""import os
+print("📂 Kaggle competition dataset mounted at /kaggle/input/{clean_link}")
+"""
+                return code, dataset_sources, competition_sources
 
         elif database_link.startswith("s3://"):
             code = f"""import boto3
@@ -248,7 +271,7 @@ s3 = boto3.client('s3')
 s3.download_file(bucket_name, key, filename)
 print(f"✅ Downloaded to /kaggle/working/{{filename}}")
 """
-            return code, dataset_sources
+            return code, dataset_sources, competition_sources
 
         elif database_link.startswith("http://") or database_link.startswith("https://"):
             code = f"""import urllib.request
@@ -261,9 +284,9 @@ print(f"📥 Downloading {{url}}...")
 urllib.request.urlretrieve(url, filename)
 print(f"✅ Downloaded to /kaggle/working/{{filename}}")
 """
-            return code, dataset_sources
+            return code, dataset_sources, competition_sources
 
-        return None, dataset_sources
+        return None, dataset_sources, competition_sources
 
     @staticmethod
     def _create_code_cell(source_code: str) -> dict:
