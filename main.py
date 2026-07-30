@@ -92,12 +92,12 @@ class AgentTaskOrchestrator:
         status = task.get('status')
         task_name = task.get('task_name', f'task-{task_id}')
         cog_prefix = f"{task_name.lower().replace(' ', '-')}/memories"
-
+        self.assigner = LLMAssigner();
         print(f"\n⚙️ Processing Task: {task_id} | Current Status: {status}")
         api_key = task.get('api_key') or self.gemini_key
         print("🔄 Starting Orchestrator Single-Pass Execution...\n")
         # assigner.assign_queues(task) returns a list of queues: [planner_q, coder_q, log_q]
-        planner_queue, coder_queue, log_queue = assigner.assign_queues(task)
+        planner_queue, coder_queue, log_queue = self.assigner.assign_queues(task)
         self.planner = PlannerAgent(gemini_api_key=api_key,model_queue=planner_queue)
         self.coder = CoderAgent(gemini_api_key=api_key,model_queue=coder_queue)
         self.cognition = CognitiveManager(gemini_api_key=api_key, s3_bucket=self.s3_bucket, model_queue=log_queue)
