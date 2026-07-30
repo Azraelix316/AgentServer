@@ -275,11 +275,12 @@ if __name__ == "__main__":
         print("\n⚠️ Loop manually interrupted.")
     except Exception as e:
         print(f"❌ Unexpected error in main loop: {e}")
-
+    # last resort sleep
+    time.sleep(180)
     # Shutdown safeguarding after the 10-minute window expires
     print("🛑 10-minute execution window completed. Triggering EC2 shutdown...")
     try:
         # Shutdown immediately (+0) or with a slight grace period
-        subprocess.run(["sudo", "shutdown", "-h", "now"], check=True)
+        subprocess.run(["sudo", "shutdown", "-h", "+3"], check=True)
     except Exception as e:
         print(f"Failed to execute shutdown command: {e}")
