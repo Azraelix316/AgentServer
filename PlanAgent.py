@@ -1,4 +1,5 @@
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted, GoogleAPICallError
 
 class PlannerAgent:
     def __init__(self, gemini_api_key: str, model_name: str = "gemini-3.5-flash-lite"):
