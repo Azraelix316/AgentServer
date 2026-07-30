@@ -31,13 +31,16 @@ class LLMAssigner:
         """
         Returns a tuple of 3 model queues: (planner_queue, coder_queue, log_queue)
         """
-        default_models = ['gemini-3.5-flash-lite', 'gemini-3.6-flash','gemini-3.5-flash-lite']
-        requested_models = task.get('models') or default_models
+        requested_models = task.get('models')
         
+        if not requested_models:
+            # Return None for all queues -> Agents use their hardcoded default self.model_queue
+            return None, None, None
+
         queues = [self._build_queue(m) for m in requested_models]
 
-        # Ensure we always have at least 3 elements to allow 3-variable unpacking
+        # Ensure 3 queues for unpacking
         while len(queues) < 3:
-            queues.append(queues[-1]) # Reuse the last queue for cognitive/log step
+            queues.append(queues[-1])
 
         return queues[0], queues[1], queues[2]
