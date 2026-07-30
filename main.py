@@ -63,6 +63,7 @@ class AgentTaskOrchestrator:
         Executes a single pass over the DynamoDB table to process actionable tasks.
         Designed to run on a transient EC2 instance and exit when finished.
         """
+        self.gemini_key = task.get('api_key') or self.gemini_key
         print("🔄 Starting Orchestrator Single-Pass Execution...\n")
         # assigner.assign_queues(task) returns a list of queues: [planner_q, coder_q, log_q]
         planner_queue, coder_queue, log_queue = assigner.assign_queues(task)
