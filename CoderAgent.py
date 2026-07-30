@@ -4,14 +4,14 @@ import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, GoogleAPICallError
 
 class CoderAgent:
-    def __init__(self, gemini_api_key: str):
+    def __init__(self, gemini_api_key: str, model_queue: list[str] = None):
         """
         Initializes the Coder Agent with a prioritized model fallback queue.
         """
         genai.configure(api_key=gemini_api_key, transport="rest")
         
         # Priority fallback queue for rate-limit / availability resilience
-        self.model_queue = [
+        self.model_queue = model_queue or [
             "gemini-3.6-flash",
             "gemini-3.5-flash",
             "gemini-3.5-flash-lite"

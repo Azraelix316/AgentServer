@@ -4,9 +4,13 @@ import google.generativeai as genai
 from botocore.exceptions import ClientError
 import re
 class CognitiveManager:
-    def __init__(self, gemini_api_key: str, s3_bucket: str, model_name: str = "gemini-3.5-flash-lite"):
+    def __init__(self, gemini_api_key: str, s3_bucket: str, model_queue: list[str] = None):
         genai.configure(api_key=gemini_api_key, transport="rest")
-        self.model = genai.GenerativeModel(model_name)
+        self.model_queue=model_queue or [
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemma-4-31b-it"
+        ]
         self.s3_client = boto3.client('s3')
         self.bucket = s3_bucket
         
@@ -201,20 +205,42 @@ Output JSON with key: "updated_report" (string)."""
         self.s3_client.put_object(Bucket=self.bucket, Key=key, Body=content.encode('utf-8'))
 
     def _call_gemini_json(self, prompt: str) -> dict:
-        """Helper to invoke Gemini with enforced JSON response structure and escape sanitization."""
-        response = self.model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(response_mime_type="application/json")
-        )
+        """Helper to invoke Gemini with JSON response structure and model fallback."""
+        raw_text = ""
+        last_error = None
 
-        raw_text = response.text
+        # 1. Fallback loop across assigned model queue
+        for model_name in self.model_queue:
+            try:
+                print(f"🤖 CognitiveManager invoking LLM: {model_name}...")
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(
+                    prompt,
+                    generation_config=genai.GenerationConfig(response_mime_type="application/json")
+                )
+                if response and response.text:
+                    raw_text = response.text
+                    break
+            except ResourceExhausted:
+                print(f"🚨 Rate limit (429) hit for '{model_name}' in CognitiveManager. Failing over...")
+                continue
+            except GoogleAPICallError as e:
+                print(f"⚠️ API call error on '{model_name}' in CognitiveManager: {e}. Failing over...")
+                last_error = e
+                continue
+            except Exception as e:
+                print(f"❌ Unexpected error in CognitiveManager for model '{model_name}': {e}")
+                last_error = e
+                continue
 
+        if not raw_text:
+            raise RuntimeError(f"All CognitiveManager model fallbacks failed. Last error: {last_error}")
+
+        # 2. Parse JSON response
         try:
-            # 1. Try standard JSON parsing
             return json.loads(raw_text, strict=False)
         except json.JSONDecodeError:
-            # 2. Fix unescaped backslashes using regex
-            # This replaces any single backslash NOT followed by valid JSON escape chars (", \, /, b, f, n, r, t, uXXXX)
+            # Fix unescaped backslashes using regex
             sanitized_text = re.sub(r'\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', raw_text)
             try:
                 return json.loads(sanitized_text, strict=False)

@@ -27,17 +27,17 @@ class LLMAssigner:
         # If model isn't in global chain, put it first, then append full chain
         return [requested_model] + self.fallback_chain
 
-    def assign_queues(self, task: dict) -> list[list[str]]:
+    def assign_queues(self, task: dict) -> tuple[list[str], list[str], list[str]]:
         """
-        Takes a task dict, extracts requested models (defaulting if missing),
-        and returns a list of model_queues (e.g. [[planner_queue], [coder_queue]])
+        Returns a tuple of 3 model queues: (planner_queue, coder_queue, log_queue)
         """
-        # Default requested models if none provided
-        is_private = task.get('is_private', False)
-        default_models = ['gemini-3.5-flash-lite', 'gemini-3.6-flash','gemini-3.5-flash-lite'] if is_private else ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite','gemini-3.5-flash-lite']
-        
+        default_models = ['gemini-3.5-flash-lite', 'gemini-3.6-flash','gemini-3.5-flash-lite']
         requested_models = task.get('models') or default_models
+        
+        queues = [self._build_queue(m) for m in requested_models]
 
-        # Build fallback array for each agent/step requested
-        model_queues = [self._build_queue_for_model(m) for m in requested_models]
-        return model_queues
+        # Ensure we always have at least 3 elements to allow 3-variable unpacking
+        while len(queues) < 3:
+            queues.append(queues[-1]) # Reuse the last queue for cognitive/log step
+
+        return queues[0], queues[1], queues[2]

@@ -34,6 +34,7 @@ from EC2S3Helper import EC2OutputSyncer
 from OutputLogParser import OutputLogParser
 from LogAgent import CognitiveManager
 from EmailHelper import send_task_completion_email
+from LLMAssigner import LLMAssigner
 class AgentTaskOrchestrator:
     def __init__(self, table_name: str = "AgentTasks"):
         print("🚀 Initializing Ephemeral Agent Task Orchestrator...")
@@ -54,20 +55,20 @@ class AgentTaskOrchestrator:
             raise ValueError("❌ Missing required environment variables (GEMINI_API_KEY, KAGGLE_USERNAME, S3_BUCKET_NAME).")
 
         # Initialize Helpers
-        self.planner = PlannerAgent(gemini_api_key=self.gemini_key)
-        self.coder = CoderAgent(gemini_api_key=self.gemini_key)
         self.kaggle = KaggleHelper(kaggle_username=self.kaggle_user, webhook_url=self.webhook_url)
         self.syncer = EC2OutputSyncer(s3_bucket_name=self.s3_bucket)
         self.parser = OutputLogParser(max_head_lines=50)
-        self.cognition = CognitiveManager(gemini_api_key=self.gemini_key, s3_bucket=self.s3_bucket)
-
     def run_once(self):
         """
         Executes a single pass over the DynamoDB table to process actionable tasks.
         Designed to run on a transient EC2 instance and exit when finished.
         """
         print("🔄 Starting Orchestrator Single-Pass Execution...\n")
-        
+        # assigner.assign_queues(task) returns a list of queues: [planner_q, coder_q, log_q]
+        planner_queue, coder_queue, log_queue = assigner.assign_queues(task)
+        self.planner = PlannerAgent(gemini_api_key=self.gemini_key,model_queue=planner_queue)
+        self.coder = CoderAgent(gemini_api_key=self.gemini_key,model_queue=coder_queue)
+        self.cognition = CognitiveManager(gemini_api_key=self.gemini_key, s3_bucket=self.s3_bucket, model_queue=log_queue)
         try:
             # 1. Fetch active tasks
             response = self.table.scan()

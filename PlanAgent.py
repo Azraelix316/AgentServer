@@ -1,12 +1,44 @@
 import google.generativeai as genai
 
 class PlannerAgent:
-    def __init__(self, gemini_api_key: str, model_name: str = "gemini-3.5-flash-lite"):
+    def __init__(self, gemini_api_key: str, model_queue: list[str] = None):
         """
         Initializes the Planner Agent, responsible for strategizing the next coding step.
         """
         genai.configure(api_key=gemini_api_key, transport="rest")
-        self.model = genai.GenerativeModel(model_name)
+        self.model_queue=model_queue or [
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemma-4-31b-it"
+        ]
+    
+    def _call_gemini_with_fallback(self, prompt: str) -> str:
+        """
+        Sequentially tries models in self.model_queue on rate limit or API error.
+        """
+        last_error = None
+        for model_name in self.model_queue:
+            try:
+                print(f"🤖 Planner invoking LLM: {model_name}...")
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                
+                if response and response.text:
+                    return response.text
+
+            except ResourceExhausted:
+                print(f"🚨 Rate limit (429) hit for '{model_name}' in Planner. Failing over...")
+                continue
+            except GoogleAPICallError as e:
+                print(f"⚠️ API call error on '{model_name}' in Planner: {e}. Failing over...")
+                last_error = e
+                continue
+            except Exception as e:
+                print(f"❌ Unexpected error calling Planner model '{model_name}': {e}")
+                last_error = e
+                continue
+
+        raise RuntimeError(f"All Planner model fallbacks failed. Last error: {last_error}")
 
     def generate_plan(
         self, 
@@ -31,7 +63,7 @@ class PlannerAgent:
         try:
             # We use standard text generation here, as the coder usually 
             # does better reading a structured markdown plan rather than raw JSON.
-            response = self.model.generate_content(prompt)
+            response = self.model._call_gemini_with_fallback(prompt)
             print("✅ Plan generated successfully.")
             return response.text
         except Exception as e:
@@ -102,7 +134,7 @@ Write the plan now:
         )
 
         try:
-            response = self.model.generate_content(prompt)
+            response = self.model._call_gemini_with_fallback(prompt)
             print("✅ Plan for forked task generated successfully.")
             return response.text
         except Exception as e:
