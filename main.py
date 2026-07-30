@@ -33,7 +33,7 @@ from KaggleHelper import KaggleHelper
 from EC2S3Helper import EC2OutputSyncer
 from OutputLogParser import OutputLogParser
 from LogAgent import CognitiveManager
-
+from EmailHelper import send_task_completion_email
 class AgentTaskOrchestrator:
     def __init__(self, table_name: str = "AgentTasks"):
         print("🚀 Initializing Ephemeral Agent Task Orchestrator...")
@@ -50,7 +50,6 @@ class AgentTaskOrchestrator:
         self.kaggle_user = os.environ.get("KAGGLE_USERNAME")
         self.s3_bucket = os.environ.get("S3_BUCKET_NAME")
         self.webhook_url = os.environ.get("WEBHOOK_URL", "")
-        
         if not all([self.gemini_key, self.kaggle_user, self.s3_bucket]):
             raise ValueError("❌ Missing required environment variables (GEMINI_API_KEY, KAGGLE_USERNAME, S3_BUCKET_NAME).")
 
@@ -138,6 +137,7 @@ class AgentTaskOrchestrator:
                         table_name=self.table_name,
                         additional_attributes={"latest_plan": plan_str}
                     )
+                    send_task_completion_email(task_id=task_id,task_name=task_name,status="Completed!",report_summary=report_content)
                     return  # Exit immediately without generating code or pushing to Kaggle
                 print(f"💻 [3/3] Generating executable Python code...")
                 code_str = self.coder.generate_code(
