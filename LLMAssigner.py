@@ -37,7 +37,7 @@ class LLMAssigner:
             # Return None for all queues -> Agents use their hardcoded default self.model_queue
             return None, None, None
 
-        queues = [self._build_queue(m) for m in requested_models]
+        queues = [self._build_queue_for_model(m) for m in requested_models]
 
         # Ensure 3 queues for unpacking
         while len(queues) < 3:
